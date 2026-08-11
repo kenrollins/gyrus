@@ -143,8 +143,9 @@ while auditing (are they memory-adjacent?).
 **Cutover sequence (simplified by the audit):**
 1. gyrus provider goes live (Step 3/4) — openbrain MCP can coexist briefly.
 2. Ken (or this session) skims
-   `xr7620:/data/code/gyrus/docs/shadesmar-notes/openbrain-keepers-review.md`
-   (26 rows, 10 minutes); anything MEMORY.md lacks gets added there by hand.
+   `xr7620:/data/docker/gyrus/openbrain-keepers-review.md` (26 rows, 10
+   minutes; moved out of the repo — raw personal content stays off GitHub);
+   anything MEMORY.md lacks gets added there by hand.
 3. **Write-freeze openbrain**: remove its `mcp_servers:` entry from Pip's
    config; stop the orphan python process on kaiju:7778.
 4. Archive the DB whenever convenient — the snapshot is the record.
