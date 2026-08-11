@@ -4,21 +4,36 @@ Working checklist, grouped by milestone (see PLAN.md). Check off as you go;
 keep this honest — it's the fast read on where the build actually is.
 
 ## Now / next
-- [ ] **Decide run-location** (own DMZ service on `.11` vs. Hermes-VM co-located)
-      — unblocks the compose/network shape. Leaning own-service (MCP face free).
-- [ ] **Decide embeddings** (gateway model vs. local Ollama) — sets the pgvector
-      dimension; do this before schema.
-- [ ] Read the three sources in `docs/references/SOURCES.md` (gemma-forge memory
+- [x] **Decide run-location** — DECIDED 2026-08-11 (ADR-0004): own DMZ service
+      on `.11`; the Hermes provider becomes a thin HTTP client.
+- [x] **Decide embeddings** — DECIDED 2026-08-11 (ADR-0005): gateway
+      `kaiju/mxbai-embed-large`, pgvector `vector(1024)`.
+- [x] Read the three sources in `docs/references/SOURCES.md` (gemma-forge memory
       modules, signal-forge consolidate.py, openbrain schema+MCP spec).
+      Verified against source 2026-08-11 — deltas from the handoff docs noted in
+      the session report (retrieval.py is NOT hybrid; no embedding pipeline
+      exists anywhere in the lineage; eviction is threshold-retirement, not
+      time-decay; signal-forge consolidates nightly, not weekly).
 
 ## M0 — the wire
-- [ ] Project skeleton: pyproject, package layout, config, `/data/docker/gyrus/.env`.
-- [ ] Mint scoped gateway key `gyrus` (into the .env, 600).
-- [ ] Create Postgres DB `gyrus` on Supabase `.220` (client, not a rival); verify
-      pgvector builds (the openbrain gotcha).
-- [ ] Copy Hermes's SQLite `MemoryProvider` skeleton; register gyrus.
-- [ ] `sync_turn` → raw turn to episodic store; `prefetch` → trivial recall.
-- [ ] **Demo from shadesmar:** capture a turn, get a recall injected.
+- [x] Project skeleton: pyproject, package layout, config, `/data/docker/gyrus/.env`.
+- [x] Mint scoped gateway key `gyrus` (into the .env, 600) — scope:
+      `kaiju/mxbai-embed-large`, `vllm/qwen-35b`, `kaiju/nemotron:70b`.
+- [x] Create Postgres DB `gyrus` on Supabase `.220`; pgvector 0.8.0 installed
+      (ships with the image — the openbrain "gotcha" was a dimension mismatch,
+      see docs/journal/gotchas/).
+- [x] Provider written against the REAL Hermes ABC (verified from source, not
+      the SQLite skeleton — richer contract: queue_prefetch, full messages).
+      → `provider/gyrus/`, stdlib-only, thin HTTP client per ADR-0004.
+- [x] `sync_turn` → raw turn to episodic store; `prefetch` → trivial recall.
+      Service live on `10.0.13.11:8000`; wire verified from DMZ + LAN vantages.
+- [ ] **Demo from shadesmar:** copy `provider/gyrus/` →
+      `$HERMES_HOME/plugins/gyrus/`, set `memory.provider: gyrus` +
+      `GYRUS_BASE_URL=http://10.0.13.11:8000`; capture a turn, see a recall
+      injected. (Needs Ken — no ssh key from this host to shadesmar.)
+- ~~BLOCKED~~ RESOLVED 2026-08-11: kaiju gateway lanes fixed (dmz backlog #4
+  done — leg removed, routes repointed, /v1 stripped). Embeddings verified
+  1024-dim through the gateway with the gyrus key. M1 is unblocked.
 
 ## M1 — episodic + retrieval
 - [ ] Extraction pass (facts/decisions, not transcript) on `sync_turn`.

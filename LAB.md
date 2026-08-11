@@ -18,7 +18,7 @@ so it may never need a passkey hostname).
 | Shared Postgres | `10.0.13.220:5432` — **be a client** (own DB `gyrus`), don't stand up a rival |
 | Neo4j + Graphiti | `10.0.13.224` (bolt `:7687`) — reflective/bi-temporal tier |
 | Inference | gateway `http://10.0.13.201:4000/v1` — extraction + embeddings. Mint a scoped key `gyrus` at kickoff (into `/data/docker/gyrus/.env`, 600) |
-| Embeddings | decide at build: gateway model vs. local Ollama (zero-token, but another dep). See ARCHITECTURE "open questions" |
+| Embeddings | **decided (ADR-0005):** gateway `kaiju/mxbai-embed-large`, `vector(1024)`; `bge-m3` (same dim) is the upgrade path |
 | Prometheus | scrape target added at kickoff (consolidation runs, memory counts, recall latency) |
 
 ## Who reaches it

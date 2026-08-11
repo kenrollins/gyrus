@@ -18,6 +18,10 @@ tiered by where each memory's reward signal comes from.
 4. **TASKS.md** — the working checklist
 5. **docs/references/SOURCES.md** — where every borrowed idea comes from, with paths
 6. **LAB.md** — this project's lab allocation (address, deps, gateway key)
+7. **docs/journal/** — the build journal. Read `docs/journal/STYLE.md` before
+   writing an entry; write entries in the same session as the work (the
+   qaoa-grid-ops lesson: a journal not written as-you-go doesn't get written).
+   Index is generated: `python3 tools/build_journal_index.py`.
 
 **Platform contract:** `/data/code/dmz/ONBOARDING.md` — follow it, don't copy it.
 **How this plugs into Pip:** `/data/code/dmz/docs/HERMES-INTEGRATION.md` (this is Phase 3).

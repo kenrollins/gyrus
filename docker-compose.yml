@@ -1,0 +1,22 @@
+# gyrus — Pip's memory. Allocation in LAB.md; platform contract in
+# /data/code/dmz/ONBOARDING.md. Secrets in /data/docker/gyrus/.env (600).
+# The dmz13 leg is REQUIRED for isolation, not just reachability — a plain
+# bridge inherits the host's routing (ONBOARDING trap, measured 2026-07-28).
+
+networks:
+  gyrus_net:
+    driver: bridge
+  dmz13:
+    external: true
+
+services:
+  app:
+    build: .
+    image: gyrus:latest
+    container_name: gyrus
+    restart: unless-stopped
+    env_file: /data/docker/gyrus/.env
+    networks:
+      gyrus_net: {}
+      dmz13:
+        ipv4_address: 10.0.13.11
