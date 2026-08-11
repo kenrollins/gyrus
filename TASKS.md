@@ -37,6 +37,16 @@ keep this honest — it's the fast read on where the build actually is.
 
 ## M1 — episodic + retrieval
 - [ ] Extraction pass (facts/decisions, not transcript) on `sync_turn`.
+      Dry-run #1 done 2026-08-11 (`tools/extraction-eval/`): use the
+      judge-class model (nemotron:70b beat qwen-35b decisively on domain
+      facts, both 100% precision); solve the recurring-preference miss.
+- [ ] **Extraction test phase (gate for M1 done):** golden set of ≥5 real
+      windows incl. cron (must extract ~nothing); Ken grades the answer
+      key; accept at ≥80% keep-rate, <5% noise. Model bake-off incl.
+      union-of-two.
+- [ ] One-time backfill: state.db (158 sessions/10.5k msgs) through the
+      extraction pass; MEMORY.md/USER.md as seed facts. (Replaces the
+      cancelled openbrain import — see docs/references/OPENBRAIN-AUDIT.md.)
 - [ ] Postgres episodic + semantic schema (+ fast-read projection).
 - [ ] Port + adapt `retrieval.py` hybrid ranker (rule_id → Pip tokens).
 - [ ] Background cache so `prefetch` returns fast.
