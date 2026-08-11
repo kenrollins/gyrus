@@ -30,6 +30,8 @@ Return [] if nothing qualifies."""
 
 window = json.load(open(sys.argv[1]))
 convo = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in window["messages"])
+if len(convo) > 24000:  # stay inside the smallest serving context; chunking is the M1 answer
+    convo = convo[:24000] + "\n\n[WINDOW TRUNCATED FOR CONTEXT BUDGET]"
 
 model = sys.argv[2] if len(sys.argv) > 2 else "vllm/qwen-35b"
 if "--v01" in sys.argv:
@@ -43,7 +45,7 @@ if "--v01" in sys.argv:
 body = {
     "model": model,
     "temperature": 0.0,
-    "max_tokens": 4000,  # thinking models spend budget on reasoning first
+    "max_tokens": int(os.environ.get("MAX_TOKENS", "4000")),  # thinking models spend budget on reasoning first
     "messages": [
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": f"Conversation window (session {window['session']}):\n\n{convo}"},
@@ -61,10 +63,15 @@ with urllib.request.urlopen(req, timeout=300) as r:
     resp = json.load(r)
 text = (resp["choices"][0]["message"]["content"] or "").strip()
 m = re.search(r"\[.*\]", text, re.DOTALL)
-if not m:
-    print("NO JSON in output; raw head:", text[:400])
-    sys.exit(1)
-facts = json.loads(m.group(0))
+if m:
+    try:
+        facts = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        print("MALFORMED JSON; raw head:", text[:300].replace(chr(10)," "))
+        facts = []
+else:
+    print("NO JSON; raw head:", text[:300].replace(chr(10)," "))
+    facts = []
 print(f"model={body['model']}  extracted={len(facts)}  tokens={resp.get('usage',{}).get('total_tokens')}")
 for f in facts:
     print(f"  [{f['tier']:10s}|{f.get('provenance','?'):8s}] {f['fact']}  {{{', '.join(f.get('entities', []))}}}")

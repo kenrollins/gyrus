@@ -76,6 +76,47 @@ Findings that shape M1:
 - Use structured output / response_format if the gateway supports it, else
   keep the tolerant parser.
 
+## Dry-run #3 (2026-08-11): full golden-set matrix + Lightning + serving facts
+
+Six real windows × configs, all on the v0.1 prompt. Facts per window
+(cron windows should yield ~0):
+
+| window | nemotron:70b | nemotron-lightning | qwen-35b | nemotron-120b |
+|---|---|---|---|---|
+| nqisrc-panel | **8** (38s) | 1 (6s) | lane down | 0 (thinking ate budget) |
+| conference-cleanup | **7** (31s) | HTTP 400 | lane down | — |
+| day3-summaries | **6** (29s) | HTTP 400 | lane down | HTTP 400 |
+| recent-other | **6** (28s) | 0 (5s) | lane down | truncated JSON |
+| cron-monday-brief | **0** ✓ | 0 ✓ | lane down | — |
+| cron-quantum-radar | 4 (noise — see below) | 0 | lane down | — |
+
+Serving facts that decided it:
+- kaiju `nemotron:70b` = llama-3.1-nemotron-70b **Q4_K_M**, model max 128k ctx,
+  served at **64k** (`OLLAMA_CONTEXT_LENGTH=65536`) — no silent-truncation risk
+  at our window sizes, and the box is otherwise idle.
+- GB10 `vllm/nemotron-120b` is a THINKING model behind a tight serving window:
+  4k gen budget → reasoning consumed it (empty/truncated JSON); 9k gen budget →
+  400 (prompt+gen exceeds max seq len). Also: it is Pip's future MAIN
+  interactive model (integration Phase 1) — extraction load there competes
+  with Pip's own lane. GB10 has no nemotron-70b (its `llama-70b` is plain
+  Llama 3.3), so a same-model quant comparison isn't available.
+- Lightning (30B-A3B): fastest by far (5-6s) and passed the cron probes, but
+  0-1 facts on real windows — inert, not discerning. Fine for the flash lane;
+  wrong tool for a recall-critical offline pass. qwen-35b lane was down all
+  afternoon (displaced from GB10 by the Lightning load — batch-claimed GPUs
+  mean lanes come and go; extraction jobs need queue/retry + a fallback model).
+
+**DECISION (pending Ken's answer key): `kaiju/nemotron:70b` + v0.1 prompt is
+the extraction workhorse.** Structural findings folded into M1 requirements:
+1. **Backfill must filter `sessions.source='cron'`** — the radar probe showed
+   automated output extracted as "memories" (news clippings + preferences
+   inferred from the cron job's own prompt, mislabeled `ken_said`).
+2. **Chunking budget**: live path is per-turn (naturally small); backfill uses
+   sliding windows (~12 msgs, 2-msg overlap, 24k-char cap) with store-side
+   dedupe. Never feed whole sessions.
+3. Provenance rule needed: scripted/system-authored text is never `ken_said`.
+4. Extraction runner needs retry + model fallback (lanes are batch-claimed).
+
 ## Test phase (gate for M1 "done")
 
 - Golden set: ≥5 windows across session types (conference deep-dive, ops
