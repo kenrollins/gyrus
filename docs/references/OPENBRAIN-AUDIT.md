@@ -33,16 +33,31 @@ verbatim import.** The embeddings-migrate-verbatim convenience (same model +
 dimension, ADR-0005) applies only to rows kept as-is — mainly the chat/
 user_input set.
 
-## Migration consequences (feeds the M1/M4 importers)
+## FINAL VERDICT (2026-08-11, second pass): skip the migration entirely
 
-1. **Route keepers through gyrus's own extraction pass** (facts-not-
-   transcripts), not a bulk INSERT. Verbatim import would reproduce
-   openbrain's no-discernment corpus inside the system built to avoid it.
-2. Target tiers: chat/user_input → preference + factual; bootstrap keepers →
-   preference/factual; pip-activity extracts → factual; entities (431 rows)
-   → M4 entity tables after re-resolution.
-3. `email-signal` is a *reference corpus* question (RAGFlow-class, out of
-   scope per PLAN) — not a memory-migration question. Archive the snapshot;
-   don't import.
-4. Cold-start expectation: ~100 quality seeds, not 500. Set the M2 decay/
-   salience baselines accordingly.
+The first-pass "~100 keepers" recommendation did not survive a comparison
+against Hermes's own distilled memory. `~/.hermes/memories/MEMORY.md` (34
+lines) and `USER.md` (24 lines) already carry **current, better-distilled
+versions of exactly the facts openbrain's best rows hold** — Obsidian
+curation preference, Whoop/health, Knoxville, Dell Federal framing,
+communication prefs. A row-by-row export of the 26 chat/user_input keepers
+(`docs/shadesmar-notes/openbrain-keepers-review.md`, for a 10-minute human
+skim) shows the remainder is historical one-offs ("traveled to GTC 2026")
+and instructions about *retired mechanics* (`PIP_INBOUND_JSON`, the
+pre-Hermes email pipeline). A time capsule, not living memory.
+
+**Decision: no openbrain importers get built.** The plan is instead:
+
+1. **One-time extraction scan over Hermes's own signals** — `state.db`
+   (158 sessions, 10,467 messages, FTS-indexed, May→now, full turns) run
+   through gyrus's M1 extraction pass as a backfill; MEMORY.md/USER.md
+   imported as seed facts (they are already extracted — that work is done).
+2. openbrain: **write-freeze** (remove the `mcp_servers` entry from Pip's
+   config), stop the orphan process on kaiju:7778, keep the snapshot
+   (`kaiju:~rollik/openbrain-snapshot-2026-08-11.sql`) as insurance,
+   archive the DB. If the human skim of the keepers file surfaces anything
+   MEMORY.md lacks, add it there by hand — a 10-minute job, not an importer.
+3. `email-signal` rows remain a RAGFlow-class reference-corpus question,
+   out of scope per PLAN.
+4. Cold-start corpus: MEMORY.md/USER.md seeds + the state.db backfill.
+   Set M2 decay/salience baselines against that, not openbrain counts.

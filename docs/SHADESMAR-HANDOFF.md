@@ -132,21 +132,22 @@ while auditing (are they memory-adjacent?).
 3. Write findings to `xr7620:/data/code/gyrus/docs/shadesmar-notes/`.
 
 **xr7620/gyrus side (the other session owns this):**
-- Importers, once M1's semantic schema exists: openbrain `memories` →
-  gyrus semantic tier (**embeddings migrate verbatim — openbrain used
-  mxbai-embed-large @1024, gyrus's exact model+dimension, ADR-0005**);
-  `memory_entities`/`memory_links` → M4 entity tables; `open_loops` →
-  M4 open_loops; `state.db` turns → episodic backfill.
-- Protective snapshot already taken: `kaiju:~rollik/openbrain-snapshot-2026-08-11.sql` (7 MB).
+- ~~openbrain importers~~ — CANCELLED after content audit (see
+  `docs/references/OPENBRAIN-AUDIT.md`, final verdict): MEMORY.md/USER.md
+  already hold the durable facts in better form; openbrain is a time
+  capsule. Snapshot kept at `kaiju:~rollik/openbrain-snapshot-2026-08-11.sql`.
+- The backfill is instead a **one-time extraction scan over Hermes's own
+  signals**: `state.db` (158 sessions / 10,467 messages, May→now) through
+  the M1 extraction pass, plus MEMORY.md/USER.md as seed facts.
 
-**Cutover sequence (don't improvise this):**
-1. gyrus provider goes live (Step 3/4) — openbrain MCP can coexist for now
-   (provider and MCP server are different slots; no conflict).
-2. Once gyrus recall is trusted: **write-freeze openbrain** (remove its MCP
-   entry from config — Pip stops writing there; process on kaiju:7778 can
-   be stopped).
-3. Export → import into gyrus when the target schema exists (M1/M4).
-4. Only then delete/archive the openbrain DB. Never step 4 before step 3.
+**Cutover sequence (simplified by the audit):**
+1. gyrus provider goes live (Step 3/4) — openbrain MCP can coexist briefly.
+2. Ken (or this session) skims
+   `xr7620:/data/code/gyrus/docs/shadesmar-notes/openbrain-keepers-review.md`
+   (26 rows, 10 minutes); anything MEMORY.md lacks gets added there by hand.
+3. **Write-freeze openbrain**: remove its `mcp_servers:` entry from Pip's
+   config; stop the orphan python process on kaiju:7778.
+4. Archive the DB whenever convenient — the snapshot is the record.
 
 ## After M0 — the shadesmar work queue (each its own session/restart)
 
