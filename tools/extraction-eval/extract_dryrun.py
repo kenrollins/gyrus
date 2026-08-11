@@ -1,6 +1,7 @@
 """M1 extraction dry-run v0 — real conference turns through the gateway."""
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -30,16 +31,26 @@ Return [] if nothing qualifies."""
 window = json.load(open(sys.argv[1]))
 convo = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in window["messages"])
 
+model = sys.argv[2] if len(sys.argv) > 2 else "vllm/qwen-35b"
+if "--v01" in sys.argv:
+    SYSTEM = SYSTEM.replace(
+        "SKIP pleasantries, one-off logistics, formatting requests bound to this single task,",
+        "SKIP pleasantries, one-off logistics, and formatting requests bound to this single task"
+        " — UNLESS the request references a prior instance or a repeating pattern"
+        " (\"like yesterday's\", \"same format as last time\", \"again\"): a format asked for"
+        " repeatedly is a PREFERENCE being expressed; extract it as one. Also skip",
+    )
 body = {
-    "model": sys.argv[2] if len(sys.argv) > 2 else "vllm/qwen-35b",
+    "model": model,
     "temperature": 0.0,
-    "max_tokens": 2500,
-    "chat_template_kwargs": {"enable_thinking": False},
+    "max_tokens": 4000,  # thinking models spend budget on reasoning first
     "messages": [
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": f"Conversation window (session {window['session']}):\n\n{convo}"},
     ],
 }
+if "qwen" in model:
+    body["chat_template_kwargs"] = {"enable_thinking": False}
 req = urllib.request.Request(
     "http://10.0.13.201:4000/v1/chat/completions",
     data=json.dumps(body).encode(),
@@ -48,10 +59,12 @@ req = urllib.request.Request(
 )
 with urllib.request.urlopen(req, timeout=300) as r:
     resp = json.load(r)
-text = resp["choices"][0]["message"]["content"].strip()
-if text.startswith("```"):
-    text = text.strip("`").lstrip("json").strip()
-facts = json.loads(text)
+text = (resp["choices"][0]["message"]["content"] or "").strip()
+m = re.search(r"\[.*\]", text, re.DOTALL)
+if not m:
+    print("NO JSON in output; raw head:", text[:400])
+    sys.exit(1)
+facts = json.loads(m.group(0))
 print(f"model={body['model']}  extracted={len(facts)}  tokens={resp.get('usage',{}).get('total_tokens')}")
 for f in facts:
     print(f"  [{f['tier']:10s}|{f.get('provenance','?'):8s}] {f['fact']}  {{{', '.join(f.get('entities', []))}}}")

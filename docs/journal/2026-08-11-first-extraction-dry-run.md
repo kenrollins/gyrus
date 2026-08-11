@@ -65,6 +65,23 @@ have. Either the dream pass promotes repeated near-identical requests into
 preferences, or extraction gets cross-session context. Noted for M1 design;
 this is exactly the kind of finding the test phase exists to surface.
 
+## Amendment, same day: scale is not the lever
+
+The obvious follow-up — "so do we need the 120B, or bigger?" — got tested
+within the hour. The 120B on the same prompt *caught* the disguised format
+preference (as a procedural memory, full section list) but *lost* every
+quantum domain fact the 70B had found. Scale reallocated attention; it
+didn't add extraction quality. Meanwhile a one-rule prompt change
+(recurrence-aware: "a format request referencing a prior instance is a
+preference") took the 70B to the best result of any run — seven facts,
+domain knowledge AND the format preference, still 100% precision. The 253B
+couldn't be tested at all: NVIDIA had silently retired its hosted endpoint
+(the day's third instance of dead wiring behind working fallbacks; the
+gateway's fallback lanes were repointed to the live 550B the same hour).
+Full table in `tools/extraction-eval/README.md`. Revised bet for M1: the
+70B plus an iterated prompt, with union-of-models as the open question —
+not a bigger model.
+
 ## What this hardens
 
 The test harness now lives in `tools/extraction-eval/` with the dry-run
