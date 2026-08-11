@@ -1,0 +1,21 @@
+# secrets never in git — they live in /data/docker/gyrus/ at 600
+.env
+*.env
+secrets/
+*.key
+*.pem
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# local scratch / consolidation reports
+data/
+dream-reports/
+*.log
