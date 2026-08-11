@@ -19,3 +19,9 @@ venv/
 data/
 dream-reports/
 *.log
+
+# golden-set windows contain raw private conversation content — never commit
+tools/extraction-eval/goldens/
+# session-to-session notes may contain raw private content — keep local
+docs/shadesmar-notes/*
+!docs/shadesmar-notes/.gitkeep
