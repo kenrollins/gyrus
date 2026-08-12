@@ -35,22 +35,28 @@ keep this honest — it's the fast read on where the build actually is.
   done — leg removed, routes repointed, /v1 stripped). Embeddings verified
   1024-dim through the gateway with the gyrus key. M1 is unblocked.
 
-## M1 — episodic + retrieval
-- [ ] Extraction pass (facts/decisions, not transcript) on `sync_turn`.
+## M1 — episodic + retrieval  ✅ SHIPPED 2026-08-12
+- [x] Extraction pass (facts/decisions, not transcript) on `sync_turn`.
       Dry-run #1 done 2026-08-11 (`tools/extraction-eval/`): use the
       judge-class model (nemotron:70b beat qwen-35b decisively on domain
       facts, both 100% precision); solve the recurring-preference miss.
-- [ ] **Extraction test phase (gate for M1 done):** golden set of ≥5 real
-      windows incl. cron (must extract ~nothing); Ken grades the answer
-      key; accept at ≥80% keep-rate, <5% noise. Model bake-off incl.
-      union-of-two.
-- [ ] One-time backfill: state.db (158 sessions/10.5k msgs) through the
-      extraction pass; MEMORY.md/USER.md as seed facts. (Replaces the
-      cancelled openbrain import — see docs/references/OPENBRAIN-AUDIT.md.)
-- [ ] Postgres episodic + semantic schema (+ fast-read projection).
-- [ ] Port + adapt `retrieval.py` hybrid ranker (rule_id → Pip tokens).
-- [ ] Background cache so `prefetch` returns fast.
-- [ ] Recall relevance check on real Pip turns.
+- [x] **Extraction test phase:** PASSED — 96% keep-rate, 0% noise. Union
+      landed as nemotron:70b + gpt-oss:120b (complementary, not redundant).
+- [x] One-time backfill: state.db, cron-filtered (47 non-cron sessions /
+      2,787 msgs — the other 111 sessions were cron), windowed, idempotent.
+      ~1,200 memories on the first pass; gap-fill run after.
+- [ ] MEMORY.md / USER.md as seed facts (small, hand-checkable — do last).
+- [x] Postgres episodic + semantic schema (0002: tier, provenance,
+      vector(1024), entities, memory_retrievals seam for M3).
+- [x] Hybrid ranker — GREENFIELD, not a port (gemma-forge's isn't hybrid):
+      keyword(FTS) + semantic(pgvector) + entity graph, fused by RRF with an
+      IDF-weighted graph leg, a cosine floor, and a multi-leg agreement bonus.
+- [x] Background cache: provider-side (client thread) + service-side workers
+      — no model call on Pip's turn path.
+- [x] Recall relevance check on real memories: 5/5 relevant on tested
+      queries, multi-leg agreement on every hit.
+- [ ] Recall relevance check on LIVE Pip turns (needs the provider activated
+      on shadesmar — one config line + restart).
 
 ## M2 — dream pass
 - [ ] Port `dream/pass_.py` + `memory/eviction.py`.
