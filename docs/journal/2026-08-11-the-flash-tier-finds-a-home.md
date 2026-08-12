@@ -72,6 +72,29 @@ L4s" is an API call with a conflict veto instead of a hand-edited systemd
 unit. The legacy demo path coexists via container adoption until its
 wrapper script is cut over.
 
+## Amendment, next morning: buttoning up is where the bugs live
+
+The day-two pass made the new tier a first-class lab citizen: tool
+descriptors for both orchestrators, Prometheus scraping the new control
+plane, the portal's front page now rendering *what model is actually
+resident* on each fleet with live KV-cache gauges, and the legacy claim
+script rewritten as an API wrapper with evacuate/restore semantics. Three
+findings from the button-up, each a bug that polish surfaced:
+
+1. **Adopt-on-restart only covered residents.** A control-plane restart
+   went blind to the running flash engine because its registry row still
+   said `resident: false`. Bootstrap now adopts any running registry
+   engine. Corollary: promotion to resident should happen the moment a
+   gate passes, not "later".
+2. **The thinking default was a correctness bug, not a cost bug.** A flash
+   caller that forgot to suppress reasoning got an EMPTY reply — the
+   thinking consumed the entire token budget before any answer (measured:
+   400 tokens, 4s, blank vs 6 tokens, 0.1s, correct). The flash route now
+   strips reasoning at the gateway, so no caller can hold it wrong.
+3. **The portal ran from a baked image, not the mounted repo** — an edit
+   that "took effect" on restart actually changed nothing until rebuild.
+   The kind of thing you only learn by watching your change not appear.
+
 ## Related
 
 - [The extraction pass met real conversations](2026-08-11-first-extraction-dry-run.md) — where the resource conflict came from
