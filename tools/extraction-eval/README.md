@@ -117,7 +117,20 @@ the extraction workhorse.** Structural findings folded into M1 requirements:
 3. Provenance rule needed: scripted/system-authored text is never `ken_said`.
 4. Extraction runner needs retry + model fallback (lanes are batch-claimed).
 
-## Test phase (gate for M1 "done")
+## Test phase result (2026-08-12): PASS
+
+Answer key graded (Ken delegated the detail pass; grades + caveat live in
+goldens/GRADING-SHEET.md, local-only): across the four real windows the
+champion config extracted 27 facts — 26 keepers, 1 redundant, 0 fabricated.
+**Keep-rate 96% vs the 80% gate; noise 0% vs the 5% ceiling.** The clean cron
+probe extracted nothing (correct); the radar probe remains the standing
+regression case for source filtering. All recall gaps were entity/reference-
+class (contact emails, library names, speaker attributions) — the union-
+second-pass case. Grading added one taxonomy requirement: a "relayed"
+provenance value, because Ken transcribing a conference talk is not Ken
+asserting facts (ken_said currently conflates them).
+
+## Test phase design (the original gate)
 
 - Golden set: ≥5 windows across session types (conference deep-dive, ops
   work, casual check-in, cron output — cron must extract ~nothing).
