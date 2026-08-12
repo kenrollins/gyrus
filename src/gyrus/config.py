@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     recall_k: int = 5                  # memories injected per turn
     recall_pool: int = 40              # candidates per leg before fusion
     semantic_floor: float = 0.45       # min cosine; below this is not "related"
+    recall_embed_timeout: float = 1.2  # semantic leg's own deadline; miss it, ship 2 legs
 
     model_config = {"env_prefix": "GYRUS_", "env_file": None}
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
@@ -125,6 +126,28 @@ async def _graph(conn, query: str, limit: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+_VEC_CACHE: "OrderedDict[str, list[float]]" = OrderedDict()
+_VEC_CACHE_MAX = 512
+
+
+async def _query_vector(query: str) -> list[float] | None:
+    """Embed a query, cached, under a deadline the recall path can afford."""
+    key = " ".join(query.lower().split())[:500]
+    if key in _VEC_CACHE:
+        _VEC_CACHE.move_to_end(key)
+        return _VEC_CACHE[key]
+    vec = (await gateway.embed([query], timeout=settings.recall_embed_timeout,
+                               attempts=1))[0]
+    if vec is None:
+        logger.info("semantic leg skipped (embedder over deadline); serving keyword+graph")
+        return None
+    _VEC_CACHE[key] = vec
+    _VEC_CACHE.move_to_end(key)
+    while len(_VEC_CACHE) > _VEC_CACHE_MAX:
+        _VEC_CACHE.popitem(last=False)
+    return vec
+
+
 async def search(conn, query: str, *, k: int | None = None,
                  pool: int | None = None) -> list[Recall]:
     """Rank memories for a query. Empty query or empty store -> []."""
@@ -133,7 +156,13 @@ async def search(conn, query: str, *, k: int | None = None,
     if not query or not query.strip():
         return []
 
-    vec = gateway.to_pgvector((await gateway.embed([query]))[0])
+    # The semantic leg gets a SHORT deadline of its own. Keyword and graph are
+    # pure Postgres (~80 ms); the query embedding rides a lane that other work
+    # can saturate — measured 2026-08-12, a backfill on the same box pushed it
+    # past 40 s and recall returned nothing at all. "Never vector-only" has to
+    # mean "never vector-DEPENDENT" too, or the leg meant to add relevance
+    # becomes the leg that can veto it.
+    vec = gateway.to_pgvector(await _query_vector(query))
     legs = {
         "keyword": await _keyword(conn, query, pool),
         "semantic": await _semantic(conn, vec, pool),

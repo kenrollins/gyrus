@@ -40,7 +40,8 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT_S = 3.0
+_TIMEOUT_S = 3.0        # writes (queued, off the turn path)
+_RECALL_TIMEOUT_S = 2.5  # the hard deadline Pip's turn will ever wait on recall
 _QUEUE_MAX = 256  # drop oldest beyond this — memory must never OOM the agent
 
 
@@ -55,6 +56,7 @@ class GyrusMemoryProvider(MemoryProvider):
         self._turn_index = 0
         self._cache_lock = threading.Lock()
         self._prefetch_cache = ""
+        self._cache_key = None
         self._queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue(maxsize=_QUEUE_MAX)
         self._writer: Optional[threading.Thread] = None
 
@@ -90,21 +92,50 @@ class GyrusMemoryProvider(MemoryProvider):
     # -- recall (read face) ---------------------------------------------------
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """Recall for THIS turn: cache hit, else a bounded synchronous fetch.
+
+        The pure-cache reading of this hook (populate in queue_prefetch, serve
+        the cache here) looks right and is wrong for a LAN service: the first
+        turn of every session gets nothing, and later turns get recall for the
+        PREVIOUS question. Verified live 2026-08-12 — Pip answered correctly
+        from its built-in memory while gyrus logged no retrieval at all.
+
+        Measured round trip from the agent host is ~120 ms warm, so recall is
+        fetched inline against a hard 2.5 s deadline (the tail case is a cold
+        embedding lane). Miss the deadline and the turn proceeds with no
+        memory rather than a stale one — showing the previous question's
+        memories is worse than showing none.
+        """
+        key = query.strip()[:500]
         with self._cache_lock:
-            return self._prefetch_cache
+            if self._cache_key == key:
+                return self._prefetch_cache
+        text = self._fetch_recall(key, session_id or self._session_id,
+                                  timeout=_RECALL_TIMEOUT_S)
+        if text is None:
+            return ""
+        with self._cache_lock:
+            self._cache_key, self._prefetch_cache = key, text
+        return text
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
+        """Warm the cache (and the embedding lane) between turns."""
         threading.Thread(
             target=self._refresh_cache, args=(query, session_id or self._session_id),
             name="gyrus-prefetch", daemon=True,
         ).start()
 
+    def _fetch_recall(self, query: str, session_id: str, *, timeout: float):
+        params = urllib.parse.urlencode({"session_id": session_id, "q": query})
+        data = self._request("GET", f"/v1/prefetch?{params}", timeout=timeout)
+        return None if data is None else data.get("text", "")
+
     def _refresh_cache(self, query: str, session_id: str) -> None:
-        params = urllib.parse.urlencode({"session_id": session_id, "q": query[:500]})
-        data = self._request("GET", f"/v1/prefetch?{params}")
-        if data is not None:
+        key = query.strip()[:500]
+        text = self._fetch_recall(key, session_id, timeout=_TIMEOUT_S)
+        if text is not None:
             with self._cache_lock:
-                self._prefetch_cache = data.get("text", "")
+                self._cache_key, self._prefetch_cache = key, text
 
     # -- capture (write face) -------------------------------------------------
 
@@ -139,7 +170,7 @@ class GyrusMemoryProvider(MemoryProvider):
         if reset:
             self._turn_index = 0
             with self._cache_lock:
-                self._prefetch_cache = ""
+                self._prefetch_cache, self._cache_key = "", None
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         if self._write_only or not self._session_id:
@@ -164,7 +195,8 @@ class GyrusMemoryProvider(MemoryProvider):
                 return
             self._request("POST", item["path"], item["body"])
 
-    def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None,
+                 timeout: float = _TIMEOUT_S) -> Optional[Dict[str, Any]]:
         req = urllib.request.Request(
             self._base_url + path,
             data=json.dumps(body).encode() if body is not None else None,
@@ -172,7 +204,7 @@ class GyrusMemoryProvider(MemoryProvider):
             method=method,
         )
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode() or "{}")
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
             logger.debug("gyrus %s %s failed: %s", method, path, e)
