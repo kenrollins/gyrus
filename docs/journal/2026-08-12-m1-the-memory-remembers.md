@@ -120,6 +120,38 @@ it as a write-time requirement. A vector is now a repairable property: a
 sweeper embeds whatever arrived without one. Twenty minutes later the store
 had zero unembedded memories and no one had to notice.
 
+## Amendment: the sixth silent failure was mine
+
+Activating the provider on the live agent produced a sixth, and it was the
+most instructive — because the code was a faithful implementation of the
+documented contract and still wrong.
+
+The provider hook says recall "should be fast — use background threads for
+the actual recall and return cached results here", with a sibling hook to
+queue that background work after each turn. Implemented literally, that
+means the first turn of any session has an empty cache, and every later turn
+serves recall for the PREVIOUS question. The agent answered the test question
+perfectly from its own built-in memory while the new store logged zero
+retrievals: a passing demo, a completely inert memory system, and no error
+anywhere.
+
+Measurement settled it: a full hybrid recall from the agent host is ~120 ms.
+The contract's caution is written for a cloud memory API, not a service one
+hop away on the LAN. Recall is now fetched inline against a hard 2.5 s
+deadline — fast path when it's fast, and the turn proceeds memory-less rather
+than late when it isn't.
+
+Then the deadline caught something real. Under a concurrent backfill the
+query-embedding call stretched past 40 seconds, so recall returned nothing —
+while the keyword and graph legs sat idle at 80 ms, perfectly able to answer.
+The project's rule is "never vector-only"; the missing half is **never
+vector-dependent**. A leg that exists to add relevance must never be able to
+veto it. The semantic leg now runs against its own 1.2 s budget and recall
+ships with two legs when the third is late.
+
+The live loop closed after that: a real session retrieved five memories,
+answered from them, and was captured back into the episodic store.
+
 ## Related
 
 - [The handoff survives contact with the source](2026-08-11-the-handoff-survives-contact.md) — why the ranker was greenfield

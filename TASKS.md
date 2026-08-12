@@ -27,10 +27,11 @@ keep this honest — it's the fast read on where the build actually is.
       → `provider/gyrus/`, stdlib-only, thin HTTP client per ADR-0004.
 - [x] `sync_turn` → raw turn to episodic store; `prefetch` → trivial recall.
       Service live on `10.0.13.11:8000`; wire verified from DMZ + LAN vantages.
-- [ ] **Demo from shadesmar:** copy `provider/gyrus/` →
-      `$HERMES_HOME/plugins/gyrus/`, set `memory.provider: gyrus` +
-      `GYRUS_BASE_URL=http://10.0.13.11:8000`; capture a turn, see a recall
-      injected. (Needs Ken — no ssh key from this host to shadesmar.)
+- [x] **Demo from shadesmar:** DONE 2026-08-12. Provider installed at
+      `~/.hermes/plugins/gyrus/`, `memory.provider: gyrus`, GYRUS_BASE_URL in
+      `.env`, gateway restarted. `hermes memory` shows "gyrus ← active".
+      Live session 20260812_190658 retrieved 5 memories AND was captured
+      back into the episodic store. The wire is closed both directions.
 - ~~BLOCKED~~ RESOLVED 2026-08-11: kaiju gateway lanes fixed (dmz backlog #4
   done — leg removed, routes repointed, /v1 stripped). Embeddings verified
   1024-dim through the gateway with the gyrus key. M1 is unblocked.
@@ -55,10 +56,14 @@ keep this honest — it's the fast read on where the build actually is.
       — no model call on Pip's turn path.
 - [x] Recall relevance check on real memories: 5/5 relevant on tested
       queries, multi-leg agreement on every hit.
-- [ ] Recall relevance check on LIVE Pip turns (needs the provider activated
-      on shadesmar — one config line + restart).
+- [x] Recall relevance check on LIVE Pip turns — verified end to end.
 
 ## M2 — dream pass
+- [ ] **Near-duplicate merge** (found 2026-08-12): write-time cosine dedupe is
+      skipped when the embedder is over deadline, so memories written during
+      an embedder stall land unde-duplicated (4 near-identical NQISRC facts
+      observed). The dream pass must merge near-duplicates it finds, not just
+      rely on the write path.
 - [ ] Port `dream/pass_.py` + `memory/eviction.py`.
 - [ ] Neo4j + Graphiti reflective tier wired.
 - [ ] Offline trigger (`on_session_end` / timer), out-of-band runner.
