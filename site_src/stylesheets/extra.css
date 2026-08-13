@@ -1,24 +1,32 @@
-/* gyrus site — small refinements over the Material defaults.
-   Palette accents lifted toward the project's deep-purple (dentate gyrus /
-   neural motif); the rest is Material Design doing the heavy lifting. */
+/* gyrus site — the KONAMI GYRUS (1983) arcade palette: chrome on black, with
+   the cabinet's golden score text and phosphor-green prompt. Material does the
+   heavy lifting (primary: black, accent: amber); these tune the exact hues. */
 
 :root {
-  --md-primary-fg-color:        #5b3a9e;
-  --md-primary-fg-color--light: #7c5cc4;
-  --md-primary-fg-color--dark:  #3f2870;
-  --md-accent-fg-color:         #7c5cc4;
+  --gy-gold:  #f5c518;   /* "1-UP  HI-SCORE  10000" golden-amber */
+  --gy-green: #37c23c;   /* "PLEASE DEPOSIT COIN" phosphor green */
+  --gy-space: #08080e;   /* the black screen */
+  --md-primary-fg-color:        #0a0a12;
+  --md-primary-fg-color--light: #17171f;
+  --md-primary-fg-color--dark:  #000000;
+  --md-accent-fg-color:         var(--gy-gold);
 }
+/* Dark "cabinet" scheme (default): near-black space, gold links + interactive. */
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color:        #7c5cc4;
-  --md-accent-fg-color:         #a487e0;
+  --md-default-bg-color:  var(--gy-space);
+  --md-primary-fg-color:  #0a0a12;
+  --md-accent-fg-color:   var(--gy-gold);
+  --md-typeset-a-color:   var(--gy-gold);
+}
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color:   #9a6b00;   /* readable gold on white */
 }
 
-/* The hero quote block on the home page: lighter, larger, no quotation gutter —
-   it reads as a standfirst, not a pull-quote. */
+/* The hero standfirst: green left rule, the cabinet's prompt colour. */
 .md-typeset .admonition.quote,
 .md-typeset details.quote {
   border: none;
-  border-left: 3px solid var(--md-primary-fg-color);
+  border-left: 3px solid var(--gy-green);
   background: var(--md-code-bg-color);
   font-size: 1.05rem;
 }
