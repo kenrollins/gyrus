@@ -73,3 +73,38 @@
   line-height: 1.05;
   margin: 0.2em 0 0.4em;
 }
+/* Kill the ¶ anchor on the hero wordmark — it chromed up and read as part of
+   the logo. (Anchors stay on every other heading for deep-linking.) */
+.md-typeset h1.arcade .headerlink { display: none; }
+
+/* ── Arcade warmth: gold section headings, so the score-gold runs through the
+   page instead of leaving it greyscale. Muted a touch so it reads as brass,
+   not neon. */
+.md-typeset h2 {
+  color: var(--gy-gold);
+  font-weight: 700;
+}
+[data-md-color-scheme="default"] .md-typeset h2 { color: #9a6b00; }
+.md-typeset h2 .headerlink { color: var(--gy-gold); }
+
+/* ── A faint starfield on the black, so the background reads as deep space
+   rather than flat black. Fixed, behind everything, non-interactive, and low
+   enough opacity that body text stays crisp. Dark scheme only. */
+[data-md-color-scheme="slate"] .md-main::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 78% 14%, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 43% 62%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 90% 71%, rgba(255,255,255,.45), transparent),
+    radial-gradient(1px 1px at 28% 84%, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 63% 38%, rgba(245,197,24,.5), transparent),
+    radial-gradient(1px 1px at 8% 68%, rgba(255,255,255,.4), transparent),
+    radial-gradient(1px 1px at 55% 91%, rgba(255,255,255,.45), transparent);
+  background-repeat: no-repeat;
+}
+[data-md-color-scheme="slate"] .md-main__inner { position: relative; z-index: 1; }
