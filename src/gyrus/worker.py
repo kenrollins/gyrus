@@ -155,6 +155,19 @@ async def _outcome_sweeper(interval_s: int = 180) -> None:
             logger.exception("outcome sweeper pass failed")
 
 
+async def _thalamus_sweeper(interval_s: int = 21600) -> None:
+    """Pull new source-items from thalamus into the knowledge tier, front-gated."""
+    from . import ingest
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            res = await ingest.pull_and_ingest()
+            if res.get("extracted"):
+                logger.info("thalamus ingest: %s", res)
+        except Exception:                                   # noqa: BLE001
+            logger.exception("thalamus sweeper failed")
+
+
 async def start(concurrency: int) -> None:
     global _queue
     _queue = asyncio.Queue(maxsize=1000)
@@ -163,6 +176,7 @@ async def start(concurrency: int) -> None:
     _tasks.append(asyncio.create_task(_sweeper()))
     _tasks.append(asyncio.create_task(_embed_sweeper()))
     _tasks.append(asyncio.create_task(_outcome_sweeper()))
+    _tasks.append(asyncio.create_task(_thalamus_sweeper()))
     logger.info("extraction worker started (%d consumers)", concurrency)
 
 

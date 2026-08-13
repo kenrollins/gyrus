@@ -77,7 +77,7 @@ The knowledge-memory track's foundation, inside gyrus.
 - **Done when:** the conference corpus is queryable AND browsable as knowledge,
   and it never dilutes a personal-memory recall.
 
-## M5 — thalamus integration + first live sources (ADR-0006/0007)
+## M5 — thalamus + first live source (ADR-0006/0007) ◑ arXiv LIVE 2026-08-13
 gyrus's side is thin (consume the contract); **thalamus is its own project/repo**
 built in parallel (see Companion projects). This milestone is where they meet.
 - **Email:** reconnect `pip_signal_memory_bridge` output → knowledge tier
