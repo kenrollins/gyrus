@@ -1,0 +1,36 @@
+/* gyrus site — small refinements over the Material defaults.
+   Palette accents lifted toward the project's deep-purple (dentate gyrus /
+   neural motif); the rest is Material Design doing the heavy lifting. */
+
+:root {
+  --md-primary-fg-color:        #5b3a9e;
+  --md-primary-fg-color--light: #7c5cc4;
+  --md-primary-fg-color--dark:  #3f2870;
+  --md-accent-fg-color:         #7c5cc4;
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #7c5cc4;
+  --md-accent-fg-color:         #a487e0;
+}
+
+/* The hero quote block on the home page: lighter, larger, no quotation gutter —
+   it reads as a standfirst, not a pull-quote. */
+.md-typeset .admonition.quote,
+.md-typeset details.quote {
+  border: none;
+  border-left: 3px solid var(--md-primary-fg-color);
+  background: var(--md-code-bg-color);
+  font-size: 1.05rem;
+}
+.md-typeset .quote > .admonition-title { display: none; }
+
+/* Figure captions / provenance notes, if any get added later. */
+.figure-note {
+  font-size: 0.78rem;
+  color: var(--md-default-fg-color--light);
+  font-style: italic;
+  margin-top: -0.6rem;
+}
+
+/* Tables read as data, not decoration. */
+.md-typeset table:not([class]) th { font-weight: 600; }

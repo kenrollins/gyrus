@@ -1,0 +1,94 @@
+site_name: gyrus
+site_description: >-
+  Pip's memory — outcome-driven consolidation that learns what's worth keeping.
+  A Hermes MemoryProvider that ports gemma-forge's measured dream-pass engine,
+  tiered by where each memory's reward signal comes from.
+site_author: Ken Rollins
+site_url: https://kenrollins.github.io/gyrus/
+repo_url: https://github.com/kenrollins/gyrus
+repo_name: kenrollins/gyrus
+edit_uri: edit/main/site_src/
+copyright: |
+  &copy; 2026 Ken Rollins. A personal exploration — not an official Dell product,
+  reference architecture, or Dell position.
+  <a href="https://kenrollins.github.io/gyrus/about/">Read the full disclaimer.</a>
+
+# site_src, not docs/: the repository's docs/ also holds internal review
+# artefacts (fable-review/), operator handoffs, and journal entries marked
+# `visibility: internal`. tools/build_site.py copies ONLY public content in, so
+# the site is single-sourced AND can never publish something marked internal —
+# the structural fix for gemma-forge's over-sharing and qaoa's manual curation.
+docs_dir: site_src
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.integrate
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.tooltips
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+plugins:
+  - search
+  # Auto-builds nav from the file tree so a new journal entry never needs a
+  # hand-edited nav line (gemma-forge maintained 66 by hand). Date-prefixed
+  # journal files order chronologically on their own.
+  - awesome-pages
+
+extra_css:
+  - stylesheets/extra.css
+
+# No `nav:` here on purpose. awesome-pages builds the whole nav from the file
+# tree + the per-directory `.pages` files that tools/build_site.py generates —
+# so a new journal entry or ADR needs zero nav edits (gemma-forge hand-listed
+# 66 entries forever; this never does). Top-level order lives in site_src/.pages.
