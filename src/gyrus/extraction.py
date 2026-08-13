@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "v1"
 
-TIERS = ("procedural", "factual", "preference", "open_loop")
+TIERS = ("procedural", "factual", "preference", "open_loop", "knowledge")
 PROVENANCE = ("ken_said", "observed", "relayed", "assistant_suggested")
 
 SYSTEM = """You are the extraction pass of a personal AI agent's long-term memory system. \
@@ -42,6 +42,17 @@ Classify each memory into exactly one tier:
 - "factual": stable facts about the world, people, organizations, projects, events
 - "preference": how Ken likes to work, communicate, or be helped
 - "open_loop": an unresolved commitment, question, or follow-up either party owes
+- "knowledge": external/world knowledge Ken is deliberately gathering, NOT a fact
+  about Ken himself — a conference talk's content, a paper's finding, a podcast's
+  argument, an industry/technical fact he's tracking. Give it a "topic" (1-3
+  short tags) and, if named, the source.
+
+THE GATE (decide personal vs knowledge first): is Ken teaching me about HIMSELF,
+his work, or his preferences (-> procedural/factual/preference/open_loop), or is
+Ken recording the WORLD he's tracking (-> knowledge)? "Ken's vault path is X" is
+personal-factual; "RIKEN's ROQUO is a GPU-quantum supercomputer" is knowledge.
+When Ken transcribes a talk or forwards a paper, its content is knowledge
+(provenance "relayed"), not a fact about Ken.
 
 Label how the memory is known (provenance):
 - "ken_said": Ken asserted it about himself, his work, or his preferences
@@ -69,7 +80,7 @@ Discernment rules (the whole point — most of the conversation is NOT memory):
   never a preference of Ken's.
 
 Return ONLY a JSON array (no markdown fences, no prose):
-[{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "..."}]
+[{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "...", "topic": ["..."]}]
 Return [] if nothing qualifies."""
 
 
@@ -79,6 +90,12 @@ class Fact:
     fact: str
     entities: list[str]
     provenance: str
+    topic: list[str] = None            # knowledge-tier tags (None -> [])
+    source_type: str = "conversation"  # where it came from; thalamus overrides for M5
+
+    def __post_init__(self):
+        if self.topic is None:
+            self.topic = []
 
     @property
     def hash(self) -> str:
@@ -122,7 +139,9 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
             prov = "observed"
         ents = item.get("entities") or []
         entities = [" ".join(str(e).split()) for e in ents if str(e).strip()][:24]
-        f = Fact(tier=tier, fact=fact, entities=entities, provenance=prov)
+        tops = item.get("topic") or []
+        topic = [" ".join(str(t).split()).lower() for t in tops if str(t).strip()][:6]
+        f = Fact(tier=tier, fact=fact, entities=entities, provenance=prov, topic=topic)
         if f.hash in seen:      # the model repeating itself within one window
             continue
         seen.add(f.hash)
@@ -168,7 +187,7 @@ async def _none() -> list[Fact]:
 
 
 async def persist(conn, facts: list[Fact], *, turn_id: int | None,
-                  session_id: str | None) -> int:
+                  session_id: str | None, source_ref: str | None = None) -> int:
     """Write facts to the semantic tier, embedding and deduping as we go.
 
     Dedupe is two-stage: exact hash (a partial unique index does the work),
@@ -196,13 +215,14 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
                 continue
         row = await conn.fetchrow(
             "INSERT INTO memories (tier, fact, entities, provenance, embedding, fact_hash,"
-            " source_turn_id, source_session_id, extractor)"
-            " VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8, $9)"
+            " source_turn_id, source_session_id, extractor, source_type, source_ref, topic)"
+            " VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8, $9, $10, $11, $12)"
             " ON CONFLICT (fact_hash) WHERE retired_at IS NULL DO UPDATE"
             "   SET corroboration_count = memories.corroboration_count + 1, updated_at = now()"
             " RETURNING id, (xmax = 0) AS inserted",
             f.tier, f.fact, f.entities, f.provenance, pgvec, f.hash,
-            turn_id, session_id, f"{settings.extract_model}:{PROMPT_VERSION}")
+            turn_id, session_id, f"{settings.extract_model}:{PROMPT_VERSION}",
+            f.source_type, source_ref, f.topic)
         if row and row["inserted"]:
             written += 1
             if f.entities:

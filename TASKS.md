@@ -86,7 +86,7 @@ keep this honest — it's the fast read on where the build actually is.
 - [ ] THE CURVE: tool-success-on-recall climbing over sessions — needs USAGE volume (organic, via M4/M5 making Pip worth using).
 - [x] Outcome scoring self-runs (worker sweeper); the loop is live.
 
-## M4 — the knowledge tier (ADR-0006)
+## M4 — the knowledge tier (ADR-0006) ✅ SHIPPED 2026-08-13 (gyrus-side)
 - [ ] Schema: `knowledge` tier + source_type/source_ref/topic; source-authority
       × recency × retrieval-demand evaluator.
 - [ ] Retrieval integration: down-weighted vs personal tiers; excluded from the

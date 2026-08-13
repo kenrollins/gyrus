@@ -41,6 +41,21 @@ NEAR_DUP_COSINE = 0.97                 # F5: merge, don't hoard
 OUTCOME_MIN_SAMPLES = 3                # gemma-forge required 5; don't let one noisy turn move confidence
 
 _ANCHOR = ("ken", "dell", "obsidian", "pip", "hermes", "gyrus", "kaiju", "federal")
+KNOWLEDGE_DEMAND_STEP = 0.07
+KNOWLEDGE_RECENCY_FADE_DAYS = 180      # knowledge goes stale on a ~6-month clock
+
+
+def _knowledge_utility(m: dict) -> float:
+    """Knowledge tier (ADR-0006): source authority x recency x retrieval-demand.
+    No outcome, no corroboration loop — demand (agent recall + human browse) is
+    the only EARNED signal, and knowledge fades on a recency clock personal
+    memory doesn't."""
+    u = BASE
+    demand = m["recall_count"] + m.get("browse_count", 0)
+    u += min(demand, 6) * KNOWLEDGE_DEMAND_STEP
+    age_days = (datetime.now(timezone.utc) - m["created_at"]).days
+    u -= min(age_days / KNOWLEDGE_RECENCY_FADE_DAYS, 1.0) * 0.25
+    return max(0.0, min(1.0, u))
 
 
 @dataclass
@@ -80,7 +95,7 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id, tier, fact, entities, provenance, confidence,"
-            " corroboration_count, recall_count, created_at, embedding IS NOT NULL AS has_vec"
+            " corroboration_count, recall_count, browse_count, created_at, embedding IS NOT NULL AS has_vec"
             " FROM memories WHERE retired_at IS NULL")
         # M3 credit assignment: true ground truth for the procedural tier.
         # AVG(outcome_value * outcome_confidence) over scored retrievals per
@@ -101,6 +116,8 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
             if m["id"] in credit and credit[m["id"]] is not None:
                 # map credit (~[-0.24, +0.8]) into a confidence in [0,1]
                 u = max(0.0, min(1.0, 0.5 + float(credit[m["id"]])))
+            elif m["tier"] == "knowledge":
+                u = _knowledge_utility(m)
             else:
                 u = _utility(m)
             scored.append((m, u))

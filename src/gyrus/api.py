@@ -180,6 +180,80 @@ async def list_memories(
     return {"count": len(rows), "memories": [dict(r) for r in rows]}
 
 
+@app.get("/v1/insights")
+async def insights(
+    source_type: str = Query(default=""),
+    topic: str = Query(default=""),
+    days: int = Query(default=30, ge=1, le=3650),
+    limit: int = Query(default=40, ge=1, le=200),
+) -> dict[str, Any]:
+    """Browse what's being gleaned — the knowledge tier, by source/topic/recency.
+
+    The "let me SEE the insights" surface (ADR-0006). Reading here IS demand
+    (ADR-0008: human browsing is the main knowledge-use pattern and must count
+    toward promotion), so a browse bumps browse_count on what it returns.
+    """
+    pool = await db.get_pool()
+    where = ["retired_at IS NULL", "tier = 'knowledge'",
+             "created_at > now() - ($1 || ' days')::interval"]
+    args: list[Any] = [str(days)]
+    if source_type:
+        args.append(source_type)
+        where.append(f"source_type = ${len(args)}")
+    if topic:
+        args.append(topic.lower())
+        where.append(f"${len(args)} = ANY(topic)")
+    args.append(limit)
+    rows = await pool.fetch(
+        f"SELECT id, fact, source_type, source_ref, topic, confidence,"
+        f" recall_count, browse_count, created_at FROM memories"
+        f" WHERE {' AND '.join(where)}"
+        f" ORDER BY created_at DESC LIMIT ${len(args)}", *args)
+    if rows:
+        await pool.execute(
+            "UPDATE memories SET browse_count = browse_count + 1, last_browsed_at = now()"
+            " WHERE id = ANY($1::bigint[])", [r["id"] for r in rows])
+    facets = await pool.fetch(
+        "SELECT source_type, count(*) FROM memories"
+        " WHERE retired_at IS NULL AND tier='knowledge' GROUP BY 1 ORDER BY 2 DESC")
+    return {"count": len(rows), "by_source": {r["source_type"]: r["count"] for r in facets},
+            "insights": [dict(r) for r in rows]}
+
+
+class Reclassify(BaseModel):
+    commit: bool = False
+
+
+@app.post("/v1/reclassify-knowledge")
+async def reclassify_knowledge(r: Reclassify) -> dict[str, Any]:
+    """F4 (Fable): move mis-tiered domain facts into the knowledge tier.
+
+    The M1 extractor (pre-M4, no knowledge tier) filed world-knowledge as
+    `factual`/`assistant_suggested` with no personal anchor — the RAGFlow-class
+    bleed the review flagged. This one-time pass reclassifies them: factual, not
+    ken_said, no personal-world term. Dry-run by default. source_type inferred
+    from the originating session's title where possible.
+    """
+    pool = await db.get_pool()
+    anchor = "|".join(["ken", "dell", "obsidian", "pip", "hermes", "gyrus", "kaiju", "federal"])
+    rows = await pool.fetch(
+        "SELECT m.id, m.fact, s.platform, s.session_id FROM memories m"
+        " LEFT JOIN sessions s ON s.session_id = m.source_session_id"
+        " WHERE m.retired_at IS NULL AND m.tier = 'factual'"
+        "   AND m.provenance IN ('assistant_suggested', 'relayed')"
+        f"   AND m.fact !~* $1", anchor)
+    sample = [{"id": r["id"], "fact": r["fact"][:90]} for r in rows[:15]]
+    if r.commit and rows:
+        # infer a coarse source_type from the session title/platform
+        for row in rows:
+            st = "conference" if row["session_id"] and (
+                "conference" in (row["session_id"] or "").lower()) else "conversation"
+            await pool.execute(
+                "UPDATE memories SET tier='knowledge', source_type=COALESCE(source_type,$2),"
+                " updated_at=now() WHERE id=$1", row["id"], st)
+    return {"committed": r.commit, "candidates": len(rows), "sample": sample}
+
+
 @app.get("/v1/stats")
 async def stats() -> dict[str, Any]:
     pool = await db.get_pool()

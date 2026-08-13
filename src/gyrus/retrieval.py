@@ -186,8 +186,15 @@ async def search(conn, query: str, *, k: int | None = None,
     priors = {r["id"]: (r["confidence"], r["weight"])
               for r in await conn.fetch(
                   "SELECT id, confidence, weight FROM memories WHERE id = ANY($1::bigint[])", ids)}
+    # Knowledge is down-weighted vs the personal tiers (ADR-0006): a fact about
+    # Ken outranks a fact about the world when both match a query. Personal
+    # memory is what makes the agent feel like it knows YOU; knowledge is
+    # reference the agent can reach for, not the first thing it should surface.
+    tier_weight = {"procedural": 1.0, "factual": 1.0, "preference": 1.0,
+                   "open_loop": 1.0, "knowledge": 0.6}
     for mid, entry in fused.items():
         conf, weight = priors.get(mid, (0.5, 1.0))
+        entry["score"] *= tier_weight.get(entry["row"]["tier"], 1.0)
         # Agreement bonus: independent legs converging on the same memory is
         # the strongest relevance evidence in the system — the top hit for
         # every good query in testing was a 2- or 3-leg agreement, and the
