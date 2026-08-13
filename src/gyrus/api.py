@@ -88,6 +88,11 @@ async def ingest_turn(turn: TurnIn) -> dict[str, Any]:
             turn.user_text, turn.assistant_text,
             json.dumps(turn.messages) if turn.messages is not None else None,
             json.dumps(turn.meta))
+    # M3: attach this turn to the memories recalled for it, so the outcome
+    # writer can credit the right memories with the turn's tool pass/fail.
+    from . import outcomes
+    async with pool.acquire() as conn:
+        await outcomes.link_retrievals(conn, turn_id, turn.session_id)
     if turn.extract:
         worker.enqueue(turn_id)
     return {"id": turn_id, "queued": turn.extract}
@@ -200,6 +205,17 @@ async def session_info(session_id: str) -> dict[str, Any]:
     return {"session_id": session_id, **dict(row)}
 
 
+@app.post("/v1/score-outcomes")
+async def score_outcomes(turn_id: int = Query(default=0)) -> dict[str, Any]:
+    """M3 outcome-signal writer (offline). Score one turn, or all pending."""
+    from . import outcomes
+    if turn_id:
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            return await outcomes.score_turn(conn, turn_id)
+    return await outcomes.score_pending()
+
+
 @app.post("/v1/consolidate")
 async def run_consolidation(commit: bool = Query(default=False)) -> dict[str, Any]:
     """Trigger the dream pass. Dry-run by default; offline, never on a turn path.
@@ -209,7 +225,7 @@ async def run_consolidation(commit: bool = Query(default=False)) -> dict[str, An
     """
     from . import consolidate
     rep = await consolidate.consolidate(commit=commit, report_dir="/data/dream-reports")
-    return {"committed": commit, "scored": rep.scored,
+    return {"committed": commit, "scored": rep.scored, "outcome_scored": rep.outcome_scored,
             "confidence_raised": rep.confidence_raised,
             "confidence_lowered": rep.confidence_lowered,
             "evict_candidates": len(rep.evict_candidates),

@@ -138,6 +138,23 @@ async def _embed_sweeper(interval_s: int = 120, batch: int = 16) -> None:
             logger.exception("embed sweeper pass failed")
 
 
+async def _outcome_sweeper(interval_s: int = 180) -> None:
+    """M3: score procedural outcomes for turns with tool activity, offline.
+
+    The reuse->run->pass/fail signal writes itself as live turns land, so the
+    dream pass has ground truth to consolidate on without anyone triggering it.
+    """
+    from . import outcomes
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            res = await outcomes.score_pending()
+            if res.get("outcomes_written"):
+                logger.info("outcome sweeper: %s", res)
+        except Exception:                                   # noqa: BLE001
+            logger.exception("outcome sweeper pass failed")
+
+
 async def start(concurrency: int) -> None:
     global _queue
     _queue = asyncio.Queue(maxsize=1000)
@@ -145,6 +162,7 @@ async def start(concurrency: int) -> None:
         _tasks.append(asyncio.create_task(_consumer(f"extract-{i}")))
     _tasks.append(asyncio.create_task(_sweeper()))
     _tasks.append(asyncio.create_task(_embed_sweeper()))
+    _tasks.append(asyncio.create_task(_outcome_sweeper()))
     logger.info("extraction worker started (%d consumers)", concurrency)
 
 

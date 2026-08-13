@@ -38,6 +38,7 @@ RECENCY_PENALTY_PER_YEAR = 0.20        # untouched memories fade; demand/corrobo
 EVICT_THRESHOLD = 0.33                 # below this, after a fair chance, it's a candidate
 EVICT_MIN_AGE_DAYS = 21                # "fair chance" — don't retire the freshly-written
 NEAR_DUP_COSINE = 0.97                 # F5: merge, don't hoard
+OUTCOME_MIN_SAMPLES = 3                # gemma-forge required 5; don't let one noisy turn move confidence
 
 _ANCHOR = ("ken", "dell", "obsidian", "pip", "hermes", "gyrus", "kaiju", "federal")
 
@@ -45,6 +46,7 @@ _ANCHOR = ("ken", "dell", "obsidian", "pip", "hermes", "gyrus", "kaiju", "federa
 @dataclass
 class Report:
     scored: int = 0
+    outcome_scored: int = 0
     confidence_raised: int = 0
     confidence_lowered: int = 0
     evict_candidates: list = field(default_factory=list)
@@ -80,10 +82,27 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
             "SELECT id, tier, fact, entities, provenance, confidence,"
             " corroboration_count, recall_count, created_at, embedding IS NOT NULL AS has_vec"
             " FROM memories WHERE retired_at IS NULL")
+        # M3 credit assignment: true ground truth for the procedural tier.
+        # AVG(outcome_value * outcome_confidence) over scored retrievals per
+        # memory — the gemma-forge follow-aware credit, reading exactly the
+        # columns the outcome writer feeds. Where this exists it OVERRIDES the
+        # proxy utility: an earned outcome beats every proxy (the whole thesis).
+        # Require enough outcome samples before ground truth overrides proxy —
+            # gemma-forge's follow_sample_size guard (it used 5). One failed turn
+            # must not tank a memory whose execution happened to error.
+        credit = {r["memory_id"]: r["c"] for r in await conn.fetch(
+            "SELECT memory_id, AVG(outcome_value * outcome_confidence) AS c"
+            " FROM memory_retrievals WHERE outcome_value IS NOT NULL"
+            " GROUP BY memory_id HAVING count(*) >= $1", OUTCOME_MIN_SAMPLES)}
+        rep.outcome_scored = len(credit)
         scored = []
         for r in rows:
             m = dict(r)
-            u = _utility(m)
+            if m["id"] in credit and credit[m["id"]] is not None:
+                # map credit (~[-0.24, +0.8]) into a confidence in [0,1]
+                u = max(0.0, min(1.0, 0.5 + float(credit[m["id"]])))
+            else:
+                u = _utility(m)
             scored.append((m, u))
             rep.scored += 1
             rep.by_tier.setdefault(m["tier"], {"n": 0, "util_sum": 0.0})

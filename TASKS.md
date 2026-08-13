@@ -79,11 +79,12 @@ keep this honest — it's the fast read on where the build actually is.
 - [ ] Decay test: recurring-useless does NOT outrank rare-valuable; stale
       never-retrieved knowledge fades.
 
-## M3 — procedural tier (PROVES THE CLAIM)
-- [ ] Outcome-signal writer: tool pass/fail → `outcome_value` (procedural).
-- [ ] Port credit assignment + causal-attribution (`tip_followed`) judge.
-      (Seam Fable-verified: GROUP BY memory_id, scope on followed_computed_at.)
-- [ ] Instrument tool-success-on-recall; watch the curve over sessions.
+## M3 — procedural tier (PROVES THE CLAIM) — MECHANISM SHIPPED 2026-08-13; curve needs usage
+- [x] Outcome-signal writer (`outcomes.py`): parses tool pass/fail + embedding tip_followed → `outcome_value`. Proven on real turn 1835.
+- [x] Credit assignment in the dream pass (GROUP BY memory_id, min-sample guard like gemma-forge's follow_sample_size). Confidence moved 0.97→0.26 on a real failing turn, then guard held it until enough evidence.
+- [ ] LLM tip_followed judge (temp 0) — embedding leg done; LLM leg later.
+- [ ] THE CURVE: tool-success-on-recall climbing over sessions — needs USAGE volume (organic, via M4/M5 making Pip worth using).
+- [x] Outcome scoring self-runs (worker sweeper); the loop is live.
 
 ## M4 — the knowledge tier (ADR-0006)
 - [ ] Schema: `knowledge` tier + source_type/source_ref/topic; source-authority
