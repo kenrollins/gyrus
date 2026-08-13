@@ -58,37 +58,65 @@ keep this honest — it's the fast read on where the build actually is.
       queries, multi-leg agreement on every hit.
 - [x] Recall relevance check on LIVE Pip turns — verified end to end.
 
-## M2 — dream pass
-- [ ] **Near-duplicate merge** (found 2026-08-12): write-time cosine dedupe is
-      skipped when the embedder is over deadline, so memories written during
-      an embedder stall land unde-duplicated (4 near-identical NQISRC facts
-      observed). The dream pass must merge near-duplicates it finds, not just
-      rely on the write path.
-- [ ] Port `dream/pass_.py` + `memory/eviction.py`.
-- [ ] Neo4j + Graphiti reflective tier wired.
-- [ ] Offline trigger (`on_session_end` / timer), out-of-band runner.
-- [ ] Idempotent `consolidated_at` + markdown report.
-- [ ] Salience/decay test: recurring-useless does NOT outrank rare-valuable.
+## M1.5 — harden M1 (Fable review) — DO FIRST, precedes M2
+- [ ] **F2:** drop the ivfflat index (28% recall@10 at 2.5k rows); flat scan
+      until >100k rows. Re-run all semantic-leg measurements after.
+- [ ] Finish the interrupted backfill (465 turns `extracted_at IS NULL`).
+- [ ] Stage the F4 reclassification: `assistant_suggested` domain facts with no
+      personal anchor → `knowledge` tier (needs M4 schema; flag now, sweep after).
+- Full findings: `docs/fable-review/04-handoff-queue.md`.
 
-## M3 — procedural tier (the proof)
+## M2 — dream pass (shared framework, per-tier evaluators)
+- [ ] Port `dream/pass_.py` + `memory/eviction.py` as a framework; plug in the
+      per-tier evaluator (ADR-0002/0006), not one global rule.
+- [ ] Wire the evaluators that don't need M3's outcome signal: factual
+      corroboration + **knowledge recency/retrieval-demand decay**.
+- [ ] **Near-duplicate merge** (F5): consolidation merges near-dups + folds
+      corroboration counts (don't trust the write path; root cause was F2).
+- [ ] Neo4j + Graphiti reflective tier wired.
+- [ ] Offline trigger (`on_session_end` / timer), out-of-band, idempotent
+      `consolidated_at` + markdown report.
+- [ ] Decay test: recurring-useless does NOT outrank rare-valuable; stale
+      never-retrieved knowledge fades.
+
+## M3 — procedural tier (PROVES THE CLAIM)
 - [ ] Outcome-signal writer: tool pass/fail → `outcome_value` (procedural).
 - [ ] Port credit assignment + causal-attribution (`tip_followed`) judge.
+      (Seam Fable-verified: GROUP BY memory_id, scope on followed_computed_at.)
 - [ ] Instrument tool-success-on-recall; watch the curve over sessions.
 
-## M4 — factual + preference + graph
+## M4 — the knowledge tier (ADR-0006)
+- [ ] Schema: `knowledge` tier + source_type/source_ref/topic; source-authority
+      × recency × retrieval-demand evaluator.
+- [ ] Retrieval integration: down-weighted vs personal tiers; excluded from the
+      M3 metric.
+- [ ] Extraction gate: "teaching me about Ken" (personal) vs "record the world"
+      (knowledge).
+- [ ] **`/v1/insights`**: browse gleaned insights by source/topic/recency.
+
+## M5 — source ingestion adapters (ADR-0006)
+- [ ] Email: reconnect `pip_signal_memory_bridge` output → knowledge tier
+      (closes the dropped-insight leak from the OpenBrain retirement).
+- [ ] Conference/notes: retag the existing harvest flow → knowledge tier.
+- [ ] Podcast: fetch → transcribe (Whisper/kaiju) → extract.
+- [ ] Web: later.
+
+## M6 — factual + preference + graph
 - [ ] Factual: contradiction detection + corroboration scoring.
 - [ ] Preference: proxy signals (corrected/reused/uncontradicted).
 - [ ] Entity resolution (Graphiti + flat `memory_entities`/`memory_links`).
 - [ ] `open_loops` (unresolved-thread memory).
 
-## M5 — MCP face
-- [ ] Implement openbrain MCP adapter spec against the gyrus store.
-- [ ] add/search/recent/open_loops tools; read-write split; request_id logging.
-- [ ] Authenticated internet exposure design (first time it leaves the LAN).
+## M7 — MCP face
+- [ ] openbrain MCP adapter spec against the gyrus store; read/write split;
+      request_id logging; add/search/recent/open_loops + insights.
+- [ ] **Auth (Fable F3):** store is unauthenticated on DMZ today — scoped token
+      before the MCP face leaves the LAN.
 
-## M6 — ingest + production
-- [ ] Zulip backfill (one-shot import) + live tail.
-- [ ] Prometheus metrics (consolidation, counts, recall latency, success curve).
+## M8 — ingest breadth + production
+- [ ] Zulip backfill from the Zulip server (pre-Hermes history, no 45-day prune).
+- [ ] Prometheus metrics (consolidation, counts by tier, recall latency, success
+      curve, knowledge freshness).
 - [ ] Provision the reserved `.11` allocation (LAB.md); operator DNS/Authentik
       only if a public face is wanted.
 
