@@ -34,3 +34,34 @@
 
 /* Tables read as data, not decoration. */
 .md-typeset table:not([class]) th { font-weight: 600; }
+
+/* ── Easter egg: the header wordmark as the KONAMI GYRUS (1983) arcade logo ──
+   Chrome 3D block letters. Pure CSS, no web font (gov networks block CDNs):
+   a heavy system block face + a vertical silver gradient clipped to the glyphs
+   + stacked drop-shadows for the bevel. Very few will get it. */
+.md-header__title .md-header__topic:first-child .md-ellipsis,
+.md-typeset h1.arcade {
+  font-family: "Arial Black", "Arial Bold", Impact, system-ui, sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  background: linear-gradient(
+    180deg,
+    #f7f7fc 0%, #d4d6e0 40%, #7f8291 51%, #6a6c7a 54%,
+    #eef0f7 68%, #b6b9c8 86%, #8f92a2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter:
+    drop-shadow(0 1px 0 #26262e)
+    drop-shadow(0 2px 0 #1a1a20)
+    drop-shadow(0 3px 3px rgba(0, 0, 0, 0.55));
+}
+
+/* The home-page wordmark, bigger, with room for the bevel to breathe. */
+.md-typeset h1.arcade {
+  font-size: 3.4rem;
+  line-height: 1.05;
+  margin: 0.2em 0 0.4em;
+}

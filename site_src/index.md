@@ -5,11 +5,11 @@ hide:
   - toc
 ---
 
-# gyrus
+# gyrus { .arcade }
 
 !!! quote ""
-    **Pip's memory — outcome-driven consolidation that learns what's worth keeping
-    instead of accumulating noise.**
+    **The memory system for a personal agentic AI — outcome-driven consolidation that
+    learns what's worth keeping instead of accumulating noise.**
 
     By **Ken Rollins**, Federal Field CTO — Emerging Technologies at Dell.
 
@@ -20,10 +20,10 @@ separation* — telling similar experiences apart so they don't blur. That is th
 service's job: turn the ordinary stream of an agent's conversation and tool use into
 durable, distinguishable memory, and consolidate the signal out of the noise.
 
-gyrus is the memory system behind **Pip**, a personal AI agent. It is a Hermes
-`MemoryProvider` that ports a *measured* consolidation engine — the "dream pass" proven
-on hard ground truth in a prior project — and applies it to a personal agent by tiering
-memories on where their reward signal comes from.
+gyrus is the memory system for a **personal agentic AI**, built on the open-source
+**Hermes agent**. It is a Hermes `MemoryProvider` that ports a *measured* consolidation
+engine — the "dream pass" proven on hard ground truth in a prior project — and applies it
+to a personal agent by tiering memories on where their reward signal comes from.
 
 !!! quote ""
     Most memory layers are good at capture and recall and thin on everything that makes

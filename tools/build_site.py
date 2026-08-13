@@ -52,6 +52,24 @@ def is_public(fm: dict) -> bool:
 GH_BLOB = "https://github.com/kenrollins/gyrus/blob/main"
 _LINK = re.compile(r"\]\(([^)]*\.md[^)]*)\)")
 
+# "Pip" is the private codename for the agent — it means nothing to a public
+# reader. Genericize it on the SITE only (the working docs keep "Pip", where it
+# reads naturally). Case-sensitive + word-boundary so lowercase identifiers
+# (pip-codex, pip_conversation_harvest.py) and ALL-CAPS env vars (PIP_INBOUND)
+# are untouched — only the agent's name in prose is replaced.
+_PUBLICIZE = [
+    (re.compile(r"Pip \(Ken's Hermes agent\)"), "the agent (a Hermes agent)"),
+    (re.compile(r"Ken's Hermes agent"), "the Hermes agent"),
+    (re.compile(r"\bPip's\b"), "the agent's"),
+    (re.compile(r"\bPip\b"), "the agent"),
+]
+
+
+def publicize(text: str) -> str:
+    for pat, repl in _PUBLICIZE:
+        text = pat.sub(repl, text)
+    return text
+
 
 def rewrite_links(body: str, *, root: str) -> str:
     """Remap repo-relative .md links to the site's layout.
@@ -97,7 +115,7 @@ def copy_doc(src: Path, dst: Path, *, title: str | None = None):
     _, body = frontmatter(src.read_text(encoding="utf-8"))
     if title:
         body = f"# {title}\n\n{body}" if not body.lstrip().startswith("#") else body
-    dst.write_text(body, encoding="utf-8")
+    dst.write_text(publicize(body), encoding="utf-8")
 
 
 def build_journal() -> int:
@@ -112,15 +130,15 @@ def build_journal() -> int:
             continue
         fm, body = frontmatter(p.read_text(encoding="utf-8"))
         if fm.get("type") == "journal" and is_public(fm):
-            (out / p.name).write_text(rewrite_links(body, root="../"), encoding="utf-8")
-            entries.append((fm.get("date", p.stem[:10]), fm.get("title", p.stem),
-                            fm.get("one_line", ""), p.name))
+            (out / p.name).write_text(publicize(rewrite_links(body, root="../")), encoding="utf-8")
+            entries.append((fm.get("date", p.stem[:10]), publicize(fm.get("title", p.stem)),
+                            publicize(fm.get("one_line", "")), p.name))
     for p in sorted((JOURNAL_SRC / "gotchas").glob("*.md")):
         fm, body = frontmatter(p.read_text(encoding="utf-8"))
         if fm.get("type") == "gotcha" and is_public(fm):
             (out / "gotchas" / p.name).write_text(
-                rewrite_links(body, root="../../"), encoding="utf-8")
-            gotchas.append((fm.get("title", p.stem), fm.get("one_line", ""),
+                publicize(rewrite_links(body, root="../../")), encoding="utf-8")
+            gotchas.append((publicize(fm.get("title", p.stem)), publicize(fm.get("one_line", "")),
                             f"gotchas/{p.name}"))
 
     entries.sort(reverse=True)  # newest first

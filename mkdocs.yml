@@ -1,8 +1,8 @@
 site_name: gyrus
 site_description: >-
-  Pip's memory — outcome-driven consolidation that learns what's worth keeping.
-  A Hermes MemoryProvider that ports gemma-forge's measured dream-pass engine,
-  tiered by where each memory's reward signal comes from.
+  Memory for a personal agentic AI — outcome-driven consolidation that learns
+  what's worth keeping. A Hermes MemoryProvider that ports a measured dream-pass
+  engine, tiered by where each memory's reward signal comes from.
 site_author: Ken Rollins
 site_url: https://kenrollins.github.io/gyrus/
 repo_url: https://github.com/kenrollins/gyrus
