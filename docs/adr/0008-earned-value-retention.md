@@ -70,3 +70,27 @@ material into durable storage.
   and a two-model union extractor validated only at conversation volume. A
   capacity plan (batch cadence, a lighter single-model extractor for the
   firehose tier, rate limits) is a prerequisite, not an optimization.
+
+## Amendment 1 (2026-08-13) — a front gate for firehose sources
+
+Ken's refinement, resolving the firehose-cost blind spot from the scope review:
+for a high-volume source like arXiv, do NOT run full extraction on every item,
+and do NOT go purely on-demand either (pure on-demand only finds what you
+already know to ask — it misses the blind spot arXiv exists to cover). Instead,
+push the earned-value gate to the FRONT of the pipeline as well as the back:
+
+- **0. Metadata scan** — pull title/abstract/authors/categories for the whole
+  lane. Near-free: it is just text, no LLM, and thalamus already normalizes.
+- **1. Cheap relevance filter** — rank abstracts against Ken's interest profile
+  (embedding similarity + keyword; a single small-model pass at most). No union
+  extractor. The survivors appear in the `/v1/insights` digest — this is what
+  covers the blind spot, cheaply.
+- **2. Full extraction** into the knowledge tier — only on items Ken/Pip engage
+  with, or that clear a high relevance bar. This is the first promotion.
+- **3. RAGFlow** — full document, on earned demand (the original gate).
+
+So extraction (the expensive union pass) is itself a promotion step, not the
+default. The abstract is the light-signal tier; the expensive work happens only
+as value is proven — the same earned-value logic, applied at both ends. This
+makes "watch all of arXiv" economically real: cost scales with what's relevant,
+not with what's published.
