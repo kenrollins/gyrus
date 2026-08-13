@@ -1,52 +1,46 @@
-/* gyrus site — the KONAMI GYRUS (1983) arcade palette: chrome on black, with
-   the cabinet's golden score text and phosphor-green prompt. Material does the
-   heavy lifting (primary: black, accent: amber); these tune the exact hues. */
+/* gyrus site theme.
+
+   Follows qaoa-grid-ops: the SIGNATURE lives in the banner, the body stays
+   calm. Base palette is qaoa's (slate-blue banner, near-black page, cyan
+   accent); the banner carries gyrus's own motif — a faint starfield (the
+   Gyruss space screen) where qaoa carried a grid — and the wordmark renders as
+   the KONAMI GYRUS (1983) chrome logo. */
 
 :root {
-  --gy-gold:  #f5c518;   /* "1-UP  HI-SCORE  10000" golden-amber */
-  --gy-green: #37c23c;   /* "PLEASE DEPOSIT COIN" phosphor green */
-  --gy-space: #08080e;   /* the black screen */
-  --md-primary-fg-color:        #0a0a12;
-  --md-primary-fg-color--light: #17171f;
-  --md-primary-fg-color--dark:  #000000;
-  --md-accent-fg-color:         var(--gy-gold);
+  --md-primary-fg-color:        #141b26;
+  --md-primary-fg-color--light: #2a3547;
+  --md-primary-fg-color--dark:  #0b0f17;
+  --md-accent-fg-color:         #0099cc;
 }
-/* Dark "cabinet" scheme (default): near-black space, gold links + interactive. */
 [data-md-color-scheme="slate"] {
-  --md-default-bg-color:  var(--gy-space);
-  --md-primary-fg-color:  #0a0a12;
-  --md-accent-fg-color:   var(--gy-gold);
-  --md-typeset-a-color:   var(--gy-gold);
+  --md-default-bg-color: #0b0f17;
+  --md-primary-fg-color: #141b26;
+  --md-accent-fg-color:  #0099cc;
+  --md-typeset-a-color:  #33b4e5;
 }
 [data-md-color-scheme="default"] {
-  --md-typeset-a-color:   #9a6b00;   /* readable gold on white */
+  --md-typeset-a-color:  #0077a3;
 }
 
-/* The hero standfirst: green left rule, the cabinet's prompt colour. */
-.md-typeset .admonition.quote,
-.md-typeset details.quote {
-  border: none;
-  border-left: 3px solid var(--gy-green);
-  background: var(--md-code-bg-color);
-  font-size: 1.05rem;
+/* ── The banner: gyrus's signature. A slate header dusted with a faint
+   starfield (one star in the cyan accent), so it reads as the deep-space
+   title screen rather than a flat bar. This is the one colourful surface;
+   the page below stays quiet. */
+.md-header, .md-tabs {
+  background:
+    radial-gradient(1px 1px at 14% 42%, rgba(255,255,255,.55), transparent),
+    radial-gradient(1px 1px at 33% 74%, rgba(255,255,255,.40), transparent),
+    radial-gradient(1px 1px at 51% 24%, rgba(255,255,255,.50), transparent),
+    radial-gradient(1.4px 1.4px at 64% 58%, rgba(0,153,204,.75), transparent),
+    radial-gradient(1px 1px at 79% 34%, rgba(255,255,255,.45), transparent),
+    radial-gradient(1px 1px at 91% 66%, rgba(255,255,255,.35), transparent),
+    #141b26;
 }
-.md-typeset .quote > .admonition-title { display: none; }
+.md-tabs { border-bottom: 1px solid rgba(0,153,204,.28); }
 
-/* Figure captions / provenance notes, if any get added later. */
-.figure-note {
-  font-size: 0.78rem;
-  color: var(--md-default-fg-color--light);
-  font-style: italic;
-  margin-top: -0.6rem;
-}
-
-/* Tables read as data, not decoration. */
-.md-typeset table:not([class]) th { font-weight: 600; }
-
-/* ── Easter egg: the header wordmark as the KONAMI GYRUS (1983) arcade logo ──
-   Chrome 3D block letters. Pure CSS, no web font (gov networks block CDNs):
-   a heavy system block face + a vertical silver gradient clipped to the glyphs
-   + stacked drop-shadows for the bevel. Very few will get it. */
+/* The wordmark as the GYRUS arcade chrome logo — pure CSS, no web font
+   (gov networks block CDNs): heavy block face + clipped silver gradient +
+   stacked bevel shadows. Very few will get it. */
 .md-header__title .md-header__topic:first-child .md-ellipsis,
 .md-typeset h1.arcade {
   font-family: "Arial Black", "Arial Bold", Impact, system-ui, sans-serif;
@@ -66,45 +60,30 @@
     drop-shadow(0 2px 0 #1a1a20)
     drop-shadow(0 3px 3px rgba(0, 0, 0, 0.55));
 }
-
-/* The home-page wordmark, bigger, with room for the bevel to breathe. */
 .md-typeset h1.arcade {
   font-size: 3.4rem;
   line-height: 1.05;
   margin: 0.2em 0 0.4em;
 }
-/* Kill the ¶ anchor on the hero wordmark — it chromed up and read as part of
-   the logo. (Anchors stay on every other heading for deep-linking.) */
+/* The ¶ anchor chromed up and read as part of the logo — hide it on the
+   wordmark only; every other heading keeps its deep-link anchor. */
 .md-typeset h1.arcade .headerlink { display: none; }
 
-/* ── Arcade warmth: gold section headings, so the score-gold runs through the
-   page instead of leaving it greyscale. Muted a touch so it reads as brass,
-   not neon. */
-.md-typeset h2 {
-  color: var(--gy-gold);
-  font-weight: 700;
+/* Hero standfirst: a quiet accent rule, not a pull-quote. */
+.md-typeset .admonition.quote,
+.md-typeset details.quote {
+  border: none;
+  border-left: 3px solid var(--md-accent-fg-color);
+  background: var(--md-code-bg-color);
+  font-size: 1.05rem;
 }
-[data-md-color-scheme="default"] .md-typeset h2 { color: #9a6b00; }
-.md-typeset h2 .headerlink { color: var(--gy-gold); }
+.md-typeset .quote > .admonition-title { display: none; }
 
-/* ── A faint starfield on the black, so the background reads as deep space
-   rather than flat black. Fixed, behind everything, non-interactive, and low
-   enough opacity that body text stays crisp. Dark scheme only. */
-[data-md-color-scheme="slate"] .md-main::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,.7), transparent),
-    radial-gradient(1px 1px at 78% 14%, rgba(255,255,255,.5), transparent),
-    radial-gradient(1px 1px at 43% 62%, rgba(255,255,255,.6), transparent),
-    radial-gradient(1px 1px at 90% 71%, rgba(255,255,255,.45), transparent),
-    radial-gradient(1px 1px at 28% 84%, rgba(255,255,255,.5), transparent),
-    radial-gradient(1px 1px at 63% 38%, rgba(245,197,24,.5), transparent),
-    radial-gradient(1px 1px at 8% 68%, rgba(255,255,255,.4), transparent),
-    radial-gradient(1px 1px at 55% 91%, rgba(255,255,255,.45), transparent);
-  background-repeat: no-repeat;
+/* Small legibility bits. */
+.figure-note {
+  font-size: 0.78rem;
+  color: var(--md-default-fg-color--light);
+  font-style: italic;
+  margin-top: -0.6rem;
 }
-[data-md-color-scheme="slate"] .md-main__inner { position: relative; z-index: 1; }
+.md-typeset table:not([class]) th { font-weight: 600; }
