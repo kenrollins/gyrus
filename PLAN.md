@@ -59,7 +59,7 @@ The proof tier (ADR-0002); the personal-memory track's payoff.
   gemma-forge 20→90 curve, on Pip's real work)? The falsifiable test.
 
 ## M4 — the knowledge tier (ADR-0006)
-The knowledge-memory track's foundation.
+The knowledge-memory track's foundation, inside gyrus.
 - Schema: `knowledge` tier + `source_type` / `source_ref` / `topic`; the
   source-authority × recency × retrieval-demand evaluator.
 - Retrieval integration: participates in hybrid recall, **down-weighted vs.
@@ -67,20 +67,38 @@ The knowledge-memory track's foundation.
 - Extraction gate: split "Ken teaching me about himself" (personal tiers) from
   "Ken directing me to record the world" (knowledge tier).
 - **`/v1/insights` visibility surface:** browse what's being gleaned, by source
-  and topic and recency. The "let me SEE the insights" requirement.
+  and topic and recency. The "let me SEE the insights" requirement. **Logs
+  reads as demand** (ADR-0008: human browsing is the main knowledge-use pattern
+  and must count toward promotion).
+- **Consume the source-item contract** (ADR-0007): a small client that pulls
+  normalized items from thalamus. gyrus does the extraction; thalamus does the
+  fetching. Until thalamus exists, this consumes the existing shadesmar email
+  output directly.
 - **Done when:** the conference corpus is queryable AND browsable as knowledge,
   and it never dilutes a personal-memory recall.
 
-## M5 — source ingestion adapters (ADR-0006)
-Thin producers, one store. Build once.
-- **Email:** reconnect `pip_signal_memory_bridge` output → gyrus knowledge tier
+## M5 — thalamus integration + first live sources (ADR-0006/0007)
+gyrus's side is thin (consume the contract); **thalamus is its own project/repo**
+built in parallel (see Companion projects). This milestone is where they meet.
+- **Email:** reconnect `pip_signal_memory_bridge` output → knowledge tier
   (closes the leak the OpenBrain retirement opened — insights currently dropped).
+  Fastest win; proves the contract end-to-end on a pipeline that already works.
 - **Conference/notes:** retag the existing harvest flow into the knowledge tier.
-- **Podcast:** new — fetch feed → transcribe (Whisper on kaiju) → extract; or
-  adopt the dmz Phase-4 `podcast-ingestor` if/when it lands.
-- **Web:** later (website_scraper analogue).
+- **Consume thalamus** for podcast + arXiv once its adapters land.
 - **Done when:** a new high-signal item from each live source appears in
   `/v1/insights` within its cadence, attributed to its source.
+
+## M9 — earned-value promotion to RAGFlow (ADR-0008) — FUTURE
+Gated on the dream pass being proven (M2) and RAGFlow being live (its own
+project; provisioned-on-paper today, not running).
+- Dream pass emits a **promotion-worthy flag** on knowledge that earns it
+  (retrieval-demand + corroboration + engagement + authority).
+- thalamus performs the heavy fetch (full PDF/transcript) → RAGFlow.
+- Capacity plan first: firehose economics (batch cadence, a lighter single-model
+  extractor for the arXiv tier, rate limits) — validated at conversation volume,
+  NOT firehose volume.
+- **Done when:** a paper/podcast that keeps earning recall is deep-searchable in
+  RAGFlow with zero manual triage.
 
 ## M6 — factual + preference tiers + the entity graph
 Refine the non-ground-truth personal tiers, honestly.
@@ -106,9 +124,19 @@ real cross-agent surface.
 - Provision the reserved `.11` allocation (LAB.md); operator DNS/Authentik only
   if a public face is wanted.
 
-## Deliberately out of scope
-- **RAGFlow / deep-corpus RAG** — the RAW-DOCUMENT search tier. gyrus holds the
-  *distilled insights* from sources (M4/M5); RAGFlow would hold the documents
-  themselves for deep retrieval. Separate project; the line is sharper post-0006.
-- **Rebuilding Hermes's capture/storage** — it already does per-turn capture;
-  gyrus is the hygiene + consolidation layer, not the recorder.
+## Companion projects (separate repos/tenants, built in parallel)
+- **thalamus** (ADR-0007) — the ingestion service. Acquires + normalizes source
+  items (email, podcast, web, **arXiv** — the quant-ph/cs.AI/cs.LG lane Ken is
+  blind to), serves them over REST/MCP. Its own milestones live in its own repo;
+  gyrus depends only on the source-item contract. Provisioned at its kickoff.
+- **RAGFlow** — the raw-document deep-search tier (ADR-0008 promotion target).
+  Provisioned-on-paper (`.229`), not running. Its rebuild is its own project;
+  gyrus only emits the promotion signal.
+
+## Deliberately out of scope (for gyrus itself)
+- **The raw-document store** — that's RAGFlow. gyrus holds *distilled insight*;
+  RAGFlow holds the documents that earned depth (ADR-0008). The line is sharp.
+- **Acquisition/fetch/transcribe** — that's thalamus (ADR-0007). gyrus never
+  fetches; it consumes a contract.
+- **Rebuilding Hermes's capture/storage** — Hermes does per-turn capture; gyrus
+  is the hygiene + consolidation layer, not the recorder.
