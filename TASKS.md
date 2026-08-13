@@ -58,7 +58,7 @@ keep this honest — it's the fast read on where the build actually is.
       queries, multi-leg agreement on every hit.
 - [x] Recall relevance check on LIVE Pip turns — verified end to end.
 
-## M1.5 — harden M1 (Fable review) — DO FIRST, precedes M2
+## M1.5 — harden M1 (Fable review) ✅ (F2 done; ~465 turns F1-gap open)
 - [ ] **F2:** drop the ivfflat index (28% recall@10 at 2.5k rows); flat scan
       until >100k rows. Re-run all semantic-leg measurements after.
 - [ ] Finish the interrupted backfill (465 turns `extracted_at IS NULL`).
@@ -66,7 +66,7 @@ keep this honest — it's the fast read on where the build actually is.
       personal anchor → `knowledge` tier (needs M4 schema; flag now, sweep after).
 - Full findings: `docs/fable-review/04-handoff-queue.md`.
 
-## M2 — dream pass (shared framework, per-tier evaluators)
+## M2 — dream pass ✅ SHIPPED 2026-08-13 (framework validated; committed first run, 78 merges)
 - [ ] Port `dream/pass_.py` + `memory/eviction.py` as a framework; plug in the
       per-tier evaluator (ADR-0002/0006), not one global rule.
 - [ ] Wire the evaluators that don't need M3's outcome signal: factual
