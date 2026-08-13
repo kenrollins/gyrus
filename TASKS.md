@@ -59,7 +59,7 @@ keep this honest — it's the fast read on where the build actually is.
 - [x] Recall relevance check on LIVE Pip turns — verified end to end.
 
 ## M1.5 — harden M1 (Fable review) ✅ (F2 done; ~465 turns F1-gap open)
-- [ ] **F2:** drop the ivfflat index (28% recall@10 at 2.5k rows); flat scan
+- [x] **F2:** drop the ivfflat index (28% recall@10 at 2.5k rows); flat scan
       until >100k rows. Re-run all semantic-leg measurements after.
 - [ ] Finish the interrupted backfill (465 turns `extracted_at IS NULL`).
 - [ ] Stage the F4 reclassification: `assistant_suggested` domain facts with no
@@ -67,11 +67,11 @@ keep this honest — it's the fast read on where the build actually is.
 - Full findings: `docs/fable-review/04-handoff-queue.md`.
 
 ## M2 — dream pass ✅ SHIPPED 2026-08-13 (framework validated; committed first run, 78 merges)
-- [ ] Port `dream/pass_.py` + `memory/eviction.py` as a framework; plug in the
+- [x] Port `dream/pass_.py` + `memory/eviction.py` as a framework; plug in the
       per-tier evaluator (ADR-0002/0006), not one global rule.
-- [ ] Wire the evaluators that don't need M3's outcome signal: factual
+- [x] Wire the evaluators that don't need M3's outcome signal: factual
       corroboration + **knowledge recency/retrieval-demand decay**.
-- [ ] **Near-duplicate merge** (F5): consolidation merges near-dups + folds
+- [x] **Near-duplicate merge** (F5): consolidation merges near-dups + folds
       corroboration counts (don't trust the write path; root cause was F2).
 - [ ] Neo4j + Graphiti reflective tier wired.
 - [ ] Offline trigger (`on_session_end` / timer), out-of-band, idempotent
