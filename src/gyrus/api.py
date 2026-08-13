@@ -200,6 +200,23 @@ async def session_info(session_id: str) -> dict[str, Any]:
     return {"session_id": session_id, **dict(row)}
 
 
+@app.post("/v1/consolidate")
+async def run_consolidation(commit: bool = Query(default=False)) -> dict[str, Any]:
+    """Trigger the dream pass. Dry-run by default; offline, never on a turn path.
+
+    M2 wires this to on_session_end / a timer. For now it's an explicit call so
+    the first runs are inspected before anything is committed.
+    """
+    from . import consolidate
+    rep = await consolidate.consolidate(commit=commit, report_dir="/data/dream-reports")
+    return {"committed": commit, "scored": rep.scored,
+            "confidence_raised": rep.confidence_raised,
+            "confidence_lowered": rep.confidence_lowered,
+            "evict_candidates": len(rep.evict_candidates),
+            "merges": len(rep.merges), "by_tier": rep.by_tier,
+            "top": rep.top, "bottom": rep.bottom}
+
+
 @app.post("/v1/sessions/{session_id}/end")
 async def end_session(session_id: str) -> dict[str, Any]:
     """Session boundary. M2 turns this into the consolidation enqueue.

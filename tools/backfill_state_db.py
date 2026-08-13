@@ -141,7 +141,12 @@ def main() -> int:
         try:
             already = get(f"/v1/sessions/{urllib.parse.quote(s['session_id'], safe='')}")
         except Exception:                                        # noqa: BLE001
-            already = {"turns": 0}
+            already = {"turns": 0, "pending": 1}
+        # Skip sessions already fully extracted — re-running every window each
+        # pass is what made this take hours and barely touch the gap.
+        if already.get("turns") and not already.get("pending"):
+            print(f"[{si}/{len(sessions)}] {s['title'][:40]:40s} skip (complete)")
+            continue
         for t in ([] if already.get("turns") else pair_turns(s["messages"])):
             try:
                 turn_ids.append(post("/v1/turns", {

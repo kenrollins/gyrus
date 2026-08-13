@@ -1,0 +1,11 @@
+-- M1.5 / Fable F2: the ivfflat index was returning 28% recall@10.
+--
+-- At this scale (thousands, not millions, of vectors) an ivfflat index with
+-- lists=64 and the default probes=1 scans one ~40-vector list and misses ~72%
+-- of true nearest neighbours — silently. It also broke write-time dedupe (F5),
+-- which finds its merge target by the same ORDER BY embedding <=> path.
+--
+-- Dropping the index makes pgvector do an EXACT scan: seq-scan + sort, 100%
+-- recall, sub-10ms at this row count. Re-introduce an ANN index (HNSW, tuned
+-- probes) only past ~100k vectors, where the exact scan stops being cheap.
+DROP INDEX IF EXISTS idx_memories_embedding;
