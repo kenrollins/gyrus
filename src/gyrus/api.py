@@ -182,11 +182,15 @@ async def list_memories(
 
 @app.post("/v1/ingest-thalamus")
 async def ingest_thalamus(max_extract: int = Query(default=12, ge=1, le=50),
-                          drain: bool = Query(default=False)) -> dict[str, Any]:
+                          drain: bool = Query(default=False),
+                          batch: int = Query(default=100, ge=1, le=200)) -> dict[str, Any]:
     """Pull source-items from thalamus, front-gate for relevance, extract the
-    relevant ones into the knowledge tier (ADR-0007/0008). Offline path."""
+    relevant ones into the knowledge tier (ADR-0007/0008). Offline path.
+
+    Smaller `batch` keeps each call short — trusted sources (github journals) are
+    large and extract in full, so a big batch can outlast an HTTP timeout."""
     from . import ingest
-    return await ingest.pull_and_ingest(max_extract=max_extract, drain=drain)
+    return await ingest.pull_and_ingest(max_extract=max_extract, drain=drain, batch=batch)
 
 
 @app.get("/v1/insights")
