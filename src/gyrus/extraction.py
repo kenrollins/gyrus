@@ -28,7 +28,7 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v1.1"
 
 TIERS = ("procedural", "factual", "preference", "open_loop", "knowledge")
 PROVENANCE = ("ken_said", "observed", "relayed", "assistant_suggested")
@@ -78,6 +78,13 @@ Discernment rules (the whole point — most of the conversation is NOT memory):
 - If the window is automated output (a scheduled job's report, a news digest)
   rather than a human exchange, extract NOTHING. Content a script produced is
   never a preference of Ken's.
+- When the window is a SOURCE DOCUMENT (a README, journal entry, or notes file,
+  usually marked with a [Source: ...] header) rather than a live exchange,
+  extract the durable CLAIMS it makes — findings, decisions, metrics, facts —
+  and SKIP its scaffolding: tables of contents, "related documents"/"see also"
+  link lists, navigation, file/section listings, and any description of the
+  document system itself ("has entries like journey-27", "related docs include
+  adr/0004"). A list of document or section names is never a memory.
 
 Return ONLY a JSON array (no markdown fences, no prose):
 [{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "...", "topic": ["..."]}]
