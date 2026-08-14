@@ -1,12 +1,18 @@
 """Consume thalamus source-items into the knowledge tier (ADR-0007/0008).
 
 gyrus PULLS from thalamus (dependency points this way; thalamus knows nothing of
-gyrus), applies the earned-value FRONT GATE (ADR-0008): a firehose like arXiv is
-cheap to scan but not cheap to fully extract, so only abstracts close to what Ken
-ALREADY tracks get the expensive union extraction. Relevance = the item
-abstract's nearest-neighbour cosine to Ken's existing knowledge/preference
-memories — "is this in a lane he cares about?" The rest are left unpulled-again
-by advancing the cursor past them; if his interests shift, re-scan later.
+gyrus). Sources split into two classes, which is truer to ADR-0008 than one gate
+for all:
+
+- TRUSTED (authored/curated — Ken's own github journals, and later his notes and
+  the email he writes): pre-vetted by virtue of being his, so NO front gate and
+  NO extract cap. A journal about a brand-new project has nothing similar in
+  memory yet and would score LOW on a similarity gate — exactly the novel signal
+  we most want to keep. Gating authored content is backwards.
+- FIREHOSE (arXiv, podcasts, web): cheap to scan, expensive to extract, so the
+  earned-value FRONT GATE applies — only items whose abstract is near what Ken
+  ALREADY tracks get the expensive extraction; the rest are skipped by advancing
+  the cursor past them (re-scan later if his interests shift).
 """
 from __future__ import annotations
 
@@ -22,9 +28,30 @@ logger = logging.getLogger(__name__)
 
 THALAMUS_URL = os.environ.get("THALAMUS_URL", "http://10.0.13.14:8000").rstrip("/")
 
+# Authored/curated source types: pre-vetted, bypass the front gate, extract all.
+TRUSTED_SOURCES = {"github", "notes", "conference"}
 
-async def pull_and_ingest(*, max_extract: int = 12, relevance_floor: float = 0.55,
-                          batch: int = 100) -> dict:
+
+async def _extract_item(conn, it: dict) -> int:
+    """Extract one source item into the knowledge tier, labelled by its real
+    source (never hardcoded — a github journal is not an arXiv paper)."""
+    src = it["source_type"]
+    ref = it["source_ref"]
+    author = f" — {it['author']}" if it.get("author") else ""
+    label = f"[Source: {src} {ref}{author}]"
+    msg = [{"role": "user", "content": f"{label}\n{it['title']}\n\n{it['body']}"}]
+    facts = await extraction.extract(msg)
+    for f in facts:
+        f.tier = "knowledge"                 # source-ingested is knowledge by definition
+        f.source_type = src
+        if not f.topic:
+            f.topic = it.get("topic") or []
+    async with conn.transaction():
+        return await extraction.persist(
+            conn, facts, turn_id=None, session_id=None, source_ref=ref)
+
+
+async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int) -> dict:
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         cursor = await conn.fetchval(
@@ -46,46 +73,65 @@ async def pull_and_ingest(*, max_extract: int = 12, relevance_floor: float = 0.5
     if not items:
         return {"pulled": 0, "extracted": 0, "cursor": cursor}
 
-    # Score each item's abstract against Ken's existing interests (front gate).
-    vecs = await gateway.embed([f"{it['title']}. {it['body']}"[:6000] for it in items])
-    scored = []
-    async with pool.acquire() as conn:
-        for it, v in zip(items, vecs):
-            pgv = gateway.to_pgvector(v)
-            rel = 0.0
-            if pgv is not None:
-                rel = await conn.fetchval(
-                    "SELECT COALESCE(max(1 - (embedding <=> $1::vector)), 0) FROM memories"
-                    " WHERE retired_at IS NULL AND embedding IS NOT NULL"
-                    "   AND tier IN ('knowledge','preference','factual')", pgv) or 0.0
-            scored.append((rel, it))
-    scored.sort(key=lambda x: -x[0])
-    selected = [it for rel, it in scored if rel >= relevance_floor][:max_extract]
+    trusted = [it for it in items if it["source_type"] in TRUSTED_SOURCES]
+    firehose = [it for it in items if it["source_type"] not in TRUSTED_SOURCES]
 
     extracted = 0
+    selected_firehose: list[dict] = []
+    pool = await db.get_pool()
+
+    # Firehose: score each abstract against Ken's existing interests (front gate).
+    if firehose:
+        vecs = await gateway.embed(
+            [f"{it['title']}. {it['body']}"[:6000] for it in firehose])
+        scored = []
+        async with pool.acquire() as conn:
+            for it, v in zip(firehose, vecs):
+                pgv = gateway.to_pgvector(v)
+                rel = 0.0
+                if pgv is not None:
+                    rel = await conn.fetchval(
+                        "SELECT COALESCE(max(1 - (embedding <=> $1::vector)), 0) FROM memories"
+                        " WHERE retired_at IS NULL AND embedding IS NOT NULL"
+                        "   AND tier IN ('knowledge','preference','factual')", pgv) or 0.0
+                scored.append((rel, it))
+        scored.sort(key=lambda x: -x[0])
+        selected_firehose = [it for rel, it in scored if rel >= relevance_floor][:max_extract]
+
+    # Trusted: no gate, no cap — extract everything Ken wrote.
     async with pool.acquire() as conn:
-        for it in selected:
-            # One "window" = the paper's title + abstract; extract into knowledge.
-            msg = [{"role": "user",
-                    "content": f"[Source: arXiv {it['source_ref']} — {it['author']}]\n"
-                               f"{it['title']}\n\n{it['body']}"}]
-            facts = await extraction.extract(msg)
-            for f in facts:
-                f.tier = "knowledge"                 # source-ingested is knowledge by definition
-                f.source_type = it["source_type"]
-                if not f.topic:
-                    f.topic = it.get("topic") or []
-            async with conn.transaction():
-                extracted += await extraction.persist(
-                    conn, facts, turn_id=None, session_id=None, source_ref=it["source_ref"])
+        for it in trusted:
+            extracted += await _extract_item(conn, it)
+        for it in selected_firehose:
+            extracted += await _extract_item(conn, it)
 
     new_cursor = payload["cursor"]
     async with pool.acquire() as conn:
         await conn.execute("UPDATE ingest_state SET cursor=$1, updated_at=now()"
                            " WHERE source='thalamus'", new_cursor)
-    logger.info("thalamus ingest: pulled %d, selected %d, extracted %d facts, cursor->%d",
-                len(items), len(selected), extracted, new_cursor)
-    return {"pulled": len(items), "selected": len(selected), "extracted": extracted,
-            "cursor": new_cursor,
-            "top": [{"rel": round(r, 3), "ref": it["source_ref"], "title": it["title"][:70]}
-                    for r, it in scored[:8]]}
+    logger.info("thalamus ingest: pulled %d (trusted %d, firehose %d->%d), extracted %d facts, cursor->%d",
+                len(items), len(trusted), len(firehose), len(selected_firehose),
+                extracted, new_cursor)
+    return {"pulled": len(items), "trusted": len(trusted),
+            "firehose_selected": len(selected_firehose), "extracted": extracted,
+            "cursor": new_cursor}
+
+
+async def pull_and_ingest(*, max_extract: int = 12, relevance_floor: float = 0.55,
+                          batch: int = 100, drain: bool = False) -> dict:
+    """One batch by default; drain=True loops until the cursor catches up (used
+    to chew through a large first backlog like the initial github pull)."""
+    total = {"pulled": 0, "trusted": 0, "firehose_selected": 0, "extracted": 0, "batches": 0}
+    while True:
+        res = await _ingest_batch(max_extract=max_extract,
+                                  relevance_floor=relevance_floor, batch=batch)
+        if res.get("error"):
+            res.update(total)
+            return res
+        for k in ("pulled", "trusted", "firehose_selected", "extracted"):
+            total[k] += res.get(k, 0)
+        total["batches"] += 1
+        total["cursor"] = res.get("cursor")
+        if not drain or res.get("pulled", 0) == 0:
+            break
+    return total
