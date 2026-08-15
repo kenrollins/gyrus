@@ -74,18 +74,29 @@ keep this honest — it's the fast read on where the build actually is.
       `run_matrix.py`, whose regex scored real output as zero facts — the same
       instrument that produced a fake verdict on the fast lane. Re-run the
       golden set under `bench_lanes.py` and correct or confirm them.
-- [ ] **The fallback lane times out** (ADR-0010 addendum). `vllm/nemotron-120b`
-      exceeded the 300s `chat_json` ceiling on 4 of 6 golden windows, so the
-      lane that covers a kaiju outage would itself fail. Raise its timeout well
-      past 300s, or repoint `extract_fallback_model` at a lane that answers
-      inside one. Cheap to fix, and it is a safety net that currently isn't one.
-- [ ] **~15% of the store is near-duplicate** (ADR-0010 addendum). A 400-memory
-      sample found 61 with a same-tier neighbour at ≥0.93 — at or above the
-      threshold that should have merged them. Suspected mechanism:
-      `persist()` guards the dedupe check with `if pgvec is not None`, so an
-      embedder timeout skips dedupe entirely and `_embed_sweeper` fills the
-      vector in later, leaving a duplicate that looks deduped. Confirm the
-      mechanism before fixing; the right threshold is its own question.
+- [x] **The fallback lane times out** (ADR-0010 addendum) — fixed 2026-08-15:
+      `chat_json` now gives the fallback attempt its own ceiling
+      (`extract_fallback_timeout`, 900s) instead of the 300s default that
+      killed it on 4 of 6 golden windows. Kept `vllm/nemotron-120b` rather
+      than repointing: the fallback must sit on non-kaiju silicon, and the
+      only fast non-kaiju lane drops the JSON contract (ADR-0010).
+- [ ] **Near-duplicates: measured 2026-08-15 (full-store exact scan) — the 15%
+      figure does not replicate.** Nearest-earlier-neighbour over all 12,886
+      live rows: **187 pairs ≥0.93 (~1.5% of the store is an undeduped later
+      twin; ~3% of rows touched)**. Replicating the 400-sample method gives
+      2.5%, not 15% — treat the old number as an instrument artifact (its
+      ad-hoc SQL is unrecoverable). Mechanism split: **95% of pairs predate
+      migration 0003** (the blind-ivfflat dedupe era, already fixed); the
+      `if pgvec is not None` skip (#9) is REAL and has a confirmed footprint
+      (one call at 2026-08-15 03:01:52, turn 823, inserted 3 facts undeduped
+      during an embed failure) but accounts for only ~10 pairs. Zero
+      same-source_key pairs — the 0006 independence rule is holding.
+      Remaining work: (a) Ken's ruling — `persist()` fails loudly instead of
+      inserting undeduped (cheap insurance; write path only, leave retrieval's
+      no-vector tolerance alone); (b) one-time legacy sweep — lower the dream
+      pass's 0.97 merge backstop to 0.93 for one run to fold the 177 pre-0003
+      pairs; (c) the 0.90–0.93 band (1,045 pairs — union-pass rewordings live
+      here) is the real threshold question, still open.
 - [ ] **Cron suppression does not work** (ADR-0010). The prompt says automated
       output yields nothing; on `cron-monday-brief` the 70B returns 6 facts and
       the fast lane 13, attributing a scheduled job's own brief to `ken_said`.

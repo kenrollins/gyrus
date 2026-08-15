@@ -122,8 +122,16 @@ async def chat_json(
     async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt, mdl in enumerate(models):
             try:
+                # The fallback lane needs more than the default ceiling on real
+                # windows (ADR-0010 addendum: timed out on 4/6 golden windows
+                # at 300s). It only answers when the primary silicon is down
+                # and extraction is offline work, so latency is the acceptable
+                # cost; a ceiling that kills the lane is not a safety net.
+                lane_timeout = (max(timeout, settings.extract_fallback_timeout)
+                                if mdl == settings.extract_fallback_model else timeout)
                 r = await client.post(f"{settings.litellm_base_url}/chat/completions",
-                                      headers=_headers(), json={**body, "model": mdl})
+                                      headers=_headers(), json={**body, "model": mdl},
+                                      timeout=lane_timeout)
                 r.raise_for_status()
                 payload = r.json()
                 text = (payload["choices"][0]["message"].get("content") or "").strip()

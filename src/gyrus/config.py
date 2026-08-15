@@ -22,12 +22,22 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("GYRUS_LITELLM_API_KEY", "LITELLM_API_KEY"))
     embed_model: str = "kaiju/mxbai-embed-large"      # ADR-0005; vector(1024)
-    # Extraction workhorse. Won the golden-set matrix outright; scale is not
-    # the lever (the 120B lost domain facts this model caught).
+    # Extraction workhorse. Keeps the job on measured evidence (ADR-0010):
+    # 6/6 golden windows usable, holds the JSON contract and the tier
+    # assignments the fast lane drops. (An earlier comment here claimed "the
+    # 120B lost domain facts" — that came from one window on the v0 prompt and
+    # is discredited; see ADR-0010.)
     extract_model: str = "kaiju/nemotron:70b"
     # Used when the primary lane is down — GB10/L4 lanes are batch-claimed,
     # kaiju's are on-demand, so the fallback deliberately sits on other silicon.
     extract_fallback_model: str = "vllm/nemotron-120b"
+    # That silicon is slow on real windows: ADR-0010's addendum measured this
+    # lane exceeding the default 300s chat_json ceiling on 4 of 6 golden
+    # windows — the safety net failed exactly when it was needed. The lane only
+    # answers when kaiju is gone and extraction is offline work, so give it
+    # room rather than repointing at a faster lane that drops the JSON
+    # contract (ADR-0010).
+    extract_fallback_timeout: float = 900.0
     # Second opinion merged into the primary result. Measured 2026-08-12 on the
     # panel window: the 70B returns the DOMAIN insights (ecosystem shift,
     # quantum+HPC coupling, modularity) while gpt-oss returns the REFERENCE
