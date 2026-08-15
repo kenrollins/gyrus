@@ -69,6 +69,17 @@ keep this honest — it's the fast read on where the build actually is.
       could have silently erased itself instead.
 - [ ] Stage the F4 reclassification: `assistant_suggested` domain facts with no
       personal anchor → `knowledge` tier (needs M4 schema; flag now, sweep after).
+- [ ] **Re-verify the prompt-lineage numbers** (ADR-0010). The v0/v0.1/v1
+      keep-rate and noise figures quoted in `extraction.py` came from
+      `run_matrix.py`, whose regex scored real output as zero facts — the same
+      instrument that produced a fake verdict on the fast lane. Re-run the
+      golden set under `bench_lanes.py` and correct or confirm them.
+- [ ] **Cron suppression does not work** (ADR-0010). The prompt says automated
+      output yields nothing; on `cron-monday-brief` the 70B returns 6 facts and
+      the fast lane 13, attributing a scheduled job's own brief to `ken_said`.
+      `worker._extract_turn`'s platform filter covers the live path, so this is
+      defense-in-depth, not an active leak — but `/v1/extract-window` has no
+      such guard. Needs its own golden-set pass, since it is a prompt change.
 - Full findings: `docs/fable-review/04-handoff-queue.md`.
 
 ## M2 — dream pass ✅ SHIPPED 2026-08-13 (framework validated; committed first run, 78 merges)

@@ -14,9 +14,24 @@ Prompt lineage (all measured in tools/extraction-eval/):
   v1.2 — + email-newsletter rule (email lane 2026-08-15: skip sponsor blocks,
          unsubscribe footers, polls; extract article claims as relayed).
 
-Model: kaiju/nemotron:70b. Scale is not the lever here — the 120B lost domain
-facts the 70B caught, and the flash tier extracted almost nothing (dry-run #2
-and #3). Prompt design won; the big model does not.
+Model: kaiju/nemotron:70b (ADR-0010). Scale is not the lever here — the 120B
+lost domain facts the 70B caught. Prompt design won; the big model does not.
+
+Going the other way is measured too, as of 2026-08-15: the fast lane
+(lab/flash == vllm/nemotron-lightning-l4, one backend under two names) is
+1.9x end-to-end, NOT the 9x its tok/s suggests — these windows are long-input
+and short-output, so wall-clock is prefill-bound and decode throughput barely
+shows. It also drops the JSON contract on 2 of 6 golden windows and files
+world knowledge as `procedural`, which is the one tier ADR-0002 makes
+falsifiable. Not a candidate. The older claim here ("the flash tier extracted
+almost nothing") was a misconfiguration — a 403 model id — recorded as a
+quality verdict; see ADR-0010.
+
+CAVEAT on the numbers above: the v0/v0.1/v1 lineage figures come from
+tools/extraction-eval/run_matrix.py, whose `\\[.*\\]` regex silently scored
+real model output as zero facts. They are indicative, not verified. Re-run
+under tools/extraction-eval/bench_lanes.py (production prompt + salvage
+parser) before quoting them anywhere that matters.
 """
 
 from __future__ import annotations
