@@ -115,11 +115,27 @@ async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int)
         selected_firehose = [it for rel, it in scored if rel >= relevance_floor][:max_extract]
 
     # Trusted: no gate, no cap — extract everything Ken wrote.
-    async with pool.acquire() as conn:
-        for it in trusted:
-            extracted += await _extract_item(conn, it)
-        for it in selected_firehose:
-            extracted += await _extract_item(conn, it)
+    #
+    # A gateway outage mid-batch must not advance the cursor, or the items it
+    # skipped are never seen again. But it must not throw either: the drain
+    # loop reads `error` to stop cleanly, and an exception would 500 the route
+    # and discard the stats for everything already persisted. So bail out the
+    # same way the thalamus pull failure does — cursor untouched, work already
+    # done reported. Re-running re-extracts the items done so far, which
+    # dedupe absorbs (hash/cosine), and that is the cheap side of the trade.
+    try:
+        async with pool.acquire() as conn:
+            for it in trusted:
+                extracted += await _extract_item(conn, it)
+            for it in selected_firehose:
+                extracted += await _extract_item(conn, it)
+    except gateway.GatewayError as e:
+        logger.warning("thalamus ingest: inference unavailable mid-batch, "
+                       "cursor held at %d (%d facts already persisted): %s",
+                       cursor, extracted, e)
+        return {"pulled": len(items), "trusted": len(trusted),
+                "firehose_selected": len(selected_firehose),
+                "extracted": extracted, "cursor": cursor, "error": str(e)}
 
     new_cursor = payload["cursor"]
     async with pool.acquire() as conn:
@@ -141,13 +157,18 @@ async def pull_and_ingest(*, max_extract: int = 12, relevance_floor: float = 0.5
     while True:
         res = await _ingest_batch(max_extract=max_extract,
                                   relevance_floor=relevance_floor, batch=batch)
-        if res.get("error"):
-            res.update(total)
-            return res
+        # Fold the batch in BEFORE checking for an error: a gateway outage can
+        # now abort part-way with real work already persisted, and
+        # `res.update(total)` would have reported that work as zero (total does
+        # not include the current batch yet).
         for k in ("pulled", "trusted", "firehose_selected", "extracted"):
             total[k] += res.get(k, 0)
         total["batches"] += 1
-        total["cursor"] = res.get("cursor")
+        if res.get("cursor") is not None:
+            total["cursor"] = res["cursor"]
+        if res.get("error"):
+            total["error"] = res["error"]
+            return total
         if not drain or res.get("pulled", 0) == 0:
             break
     return total

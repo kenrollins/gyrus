@@ -98,13 +98,29 @@ async def _sweeper(interval_s: int = 300) -> None:
             # So the exclusion is now a GRACE PERIOD, not an exemption. A
             # backfill in flight is protected; one that died is eventually
             # swept per-turn — worse context than a window, but the backlog
-            # drains and cannot silently rebuild. Run tools/backfill_pending.py
-            # to clear a known-stranded backlog properly (windowed) first.
+            # drains and cannot silently rebuild.
+            #
+            # The grace alone is not enough, though: turns stranded long enough
+            # to need tools/backfill_pending.py are BY DEFINITION past it, so
+            # the sweeper would race the very tool sent to repair them — two
+            # writers on the same memories, per-turn work duplicating window
+            # work on a saturated box. Hence the LEASE: that tool heartbeats a
+            # row in ingest_state, and while the lease is fresh the sweeper
+            # leaves backfill turns alone regardless of age. Lease expires on
+            # its own, so a crashed repair run cannot re-strand them forever.
+            lease_held = await pool.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM ingest_state"
+                " WHERE source = 'backfill_lease'"
+                "   AND updated_at > now() - interval '10 minutes')")
+            if lease_held:
+                logger.debug("sweeper: backfill lease held, skipping backfill turns")
             rows = await pool.fetch(
                 "SELECT id FROM episodic_turns WHERE extracted_at IS NULL"
                 " AND (COALESCE(meta->>'backfill', 'false') <> 'true'"
-                "      OR created_at < now() - ($1 || ' hours')::interval)"
-                " ORDER BY created_at LIMIT 50", str(settings.backfill_grace_hours))
+                "      OR (NOT $2::bool"
+                "          AND created_at < now() - ($1 || ' hours')::interval))"
+                " ORDER BY created_at LIMIT 50",
+                str(settings.backfill_grace_hours), bool(lease_held))
             for r in rows:
                 enqueue(r["id"])
             if rows:

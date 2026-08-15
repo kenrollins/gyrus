@@ -70,10 +70,18 @@ async def fetch_pending(conn, session: str | None) -> dict[str, list[dict]]:
     `turn_index` is NULL on every backfilled row, so `id` IS the ordering —
     it is monotonic per the insert loop that wrote them.
     """
+    # CRON IS EXCLUDED, as everywhere else: the golden-set probe showed a
+    # scheduled job's own prompt extracted as "Ken prefers...". worker.py
+    # filters on the live path and backfill_state_db.py filters at the source;
+    # a repair tool that skipped the filter would reintroduce exactly the fake
+    # memories the other two exist to prevent. Cron turns are left for
+    # worker._extract_turn, which stamps them 'skipped: cron source'.
     rows = await conn.fetch(
         "SELECT id, session_id, user_text, assistant_text, platform"
         "  FROM episodic_turns"
-        " WHERE extracted_at IS NULL" + (" AND session_id = $1" if session else "") +
+        " WHERE extracted_at IS NULL"
+        "   AND lower(coalesce(platform, '')) <> 'cron'" +
+        (" AND session_id = $1" if session else "") +
         " ORDER BY session_id, id", *([session] if session else []))
     out: dict[str, list[dict]] = {}
     for r in rows:
@@ -127,6 +135,30 @@ def build_windows(turns: list[dict]) -> list[dict[str, Any]]:
     return windows
 
 
+async def heartbeat_lease(dsn: str, stop: asyncio.Event, period: float = 120.0) -> None:
+    """Hold the backfill lease while this run is alive.
+
+    worker._sweeper skips backfill turns while this row is fresh. Without it
+    the sweeper races us by construction: turns stranded long enough to need
+    this tool are older than the grace period that would otherwise protect
+    them. The lease is short (10 min in the sweeper) and refreshed here, so a
+    crash re-exposes the turns rather than stranding them a second time.
+    """
+    conn = await asyncpg.connect(dsn)
+    try:
+        while not stop.is_set():
+            await conn.execute(
+                "INSERT INTO ingest_state (source, updated_at)"
+                " VALUES ('backfill_lease', now())"
+                " ON CONFLICT (source) DO UPDATE SET updated_at = now()")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=period)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        await conn.close()
+
+
 async def run_window(client: httpx.AsyncClient, session_id: str, w: dict,
                      *, retries: int, backoff: float) -> dict:
     """POST one window, retrying while inference is unavailable.
@@ -170,9 +202,16 @@ async def main() -> int:
                     help="first retry wait in seconds; doubles each attempt")
     args = ap.parse_args()
 
-    conn = await asyncpg.connect(os.environ["GYRUS_PG_DSN"])
+    dsn = os.environ["GYRUS_PG_DSN"]
+    conn = await asyncpg.connect(dsn)
     try:
         by_session = await fetch_pending(conn, args.session)
+        # Reported, not silently skipped: cron turns are excluded from our work
+        # list but still count as pending on /health, so a run that leaves
+        # `pending` above zero should say why.
+        cron_pending = await conn.fetchval(
+            "SELECT count(*) FROM episodic_turns WHERE extracted_at IS NULL"
+            "   AND lower(coalesce(platform, '')) = 'cron'")
     finally:
         await conn.close()
 
@@ -181,6 +220,9 @@ async def main() -> int:
     n_windows = sum(len(w) for _, w in plan)
     print(f"pending: {total_turns} turns in {len(by_session)} sessions "
           f"-> {n_windows} windows", flush=True)
+    if cron_pending:
+        print(f"  ({cron_pending} cron turns excluded — worker.py stamps those "
+              f"'skipped: cron source')", flush=True)
     for sid, ws in plan:
         print(f"  {sid}  {len(by_session[sid]):4d} turns  {len(ws):3d} windows "
               f"(avg {sum(x['chars'] for x in ws) // max(1, len(ws))} chars)", flush=True)
@@ -191,6 +233,11 @@ async def main() -> int:
     t0 = time.time()
     stats = {"windows": 0, "facts": 0, "new": 0, "turns": 0, "failed": 0}
     dispatched = 0
+
+    # Take the lease before the first window and hold it for the whole run, so
+    # the sweeper does not extract these turns per-turn behind our back.
+    stop_lease = asyncio.Event()
+    lease_task = asyncio.create_task(heartbeat_lease(dsn, stop_lease))
 
     async with httpx.AsyncClient(timeout=900) as client:
         async def one(sid: str, w: dict, label: str) -> None:
@@ -228,7 +275,14 @@ async def main() -> int:
                 tasks.append(one(sid, w, f"[{sid[:20]} {k}/{len(ws)}]"))
             if args.limit_windows and dispatched >= args.limit_windows:
                 break
-        await asyncio.gather(*tasks)
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            # Release promptly on success, failure, or Ctrl-C — a held lease
+            # keeps the sweeper off these turns, which is the opposite of what
+            # an aborted run wants.
+            stop_lease.set()
+            await lease_task
 
     print(f"\ndone: {stats['windows']} windows, {stats['turns']} turns extracted, "
           f"{stats['facts']} facts ({stats['new']} new), {stats['failed']} windows failed, "

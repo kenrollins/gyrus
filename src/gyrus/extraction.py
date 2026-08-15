@@ -246,7 +246,12 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
     vectors = await gateway.embed([f.fact for f in facts])
     written = 0
     corroborate: dict[int, int] = {}       # memory id -> how many times bumped
-    for f, vec in zip(facts, vectors):
+    fresh: set[int] = set()                # inserted by THIS call
+    # Hash order, so concurrent writers attempt the exact-hash upsert below in
+    # the same sequence. The batched bump at the end fixed lock ordering for
+    # the cosine path; ON CONFLICT DO UPDATE takes a row lock too, and left
+    # unordered it could still deadlock two windows extracting the same facts.
+    for f, vec in sorted(zip(facts, vectors), key=lambda fv: fv[0].hash):
         pgvec = gateway.to_pgvector(vec)
         # near-duplicate check (only possible when both sides have vectors)
         if pgvec is not None:
@@ -259,7 +264,15 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
                 # Counted, not just flagged: two facts in one window can land
                 # on the same memory, and that is two corroborations — unless
                 # the duplicate is the same source repeating itself.
-                if not (source_key is not None and dup["source_key"] == source_key):
+                #
+                # `fresh` is that same independence rule for the CONVERSATION
+                # path, where source_key is always None so the check above
+                # never fires. Without it a window that states a fact twice
+                # inserts it once and then corroborates it with its own
+                # restatement — one utterance voting twice, on the tiers where
+                # ADR-0002 actually depends on the signal.
+                same_source = source_key is not None and dup["source_key"] == source_key
+                if not same_source and dup["id"] not in fresh:
                     corroborate[dup["id"]] = corroborate.get(dup["id"], 0) + 1
                 continue
         row = await conn.fetchrow(
@@ -275,6 +288,7 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
             f.source_type, source_ref, f.topic, source_key)
         if row and row["inserted"]:
             written += 1
+            fresh.add(row["id"])
             if f.entities:
                 await conn.executemany(
                     "INSERT INTO memory_entities (memory_id, entity, normalized)"

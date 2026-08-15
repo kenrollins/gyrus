@@ -117,17 +117,24 @@ def windows(turns: list[dict], size: int, overlap: int):
     session-level call that a resumed run never made — 465 turns stranded.
 
     Overlap is carried for CONTEXT only; each window claims just its own new
-    turns, so no turn is extracted twice.
+    turns. Two rules keep that true, and both were got wrong once:
+
+      - advance by len(chunk), NOT by `size - overlap`. Stepping by the
+        stride while claiming the whole chunk makes consecutive windows claim
+        the same turns, extracting a third of the corpus twice at full 70B
+        cost for facts that only dedupe away.
+      - `claim` holds turn DICTS, not ids. The dry-run counts windows before
+        any turn has been posted, so requiring `t["id"]` here made every
+        invocation of this tool raise KeyError before it did anything.
     """
-    step = max(1, size - overlap)
-    for i in range(0, len(turns), step):
+    i = 0
+    while i < len(turns):
         chunk = turns[i:i + size]
         if not chunk:
             break
         context = turns[max(0, i - overlap):i]
-        yield {"turns": context + chunk, "claim": [t["id"] for t in chunk]}
-        if i + size >= len(turns):
-            break
+        yield {"turns": context + chunk, "claim": chunk}
+        i += len(chunk)
 
 
 def main() -> int:
@@ -214,7 +221,7 @@ def main() -> int:
                 return post("/v1/extract-window", {
                     "session_id": s["session_id"],
                     "messages": [m for t in w["turns"] for m in turn_messages(t)],
-                    "turn_ids": w["claim"]})
+                    "turn_ids": [t["id"] for t in w["claim"] if t.get("id")]})
             except Exception as e:                                   # noqa: BLE001
                 # 503 = inference unavailable; nothing was stamped, so these
                 # turns stay pending for the next run rather than vanishing.
