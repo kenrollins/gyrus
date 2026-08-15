@@ -58,10 +58,15 @@ keep this honest — it's the fast read on where the build actually is.
       queries, multi-leg agreement on every hit.
 - [x] Recall relevance check on LIVE Pip turns — verified end to end.
 
-## M1.5 — harden M1 (Fable review) ✅ (F2 done; ~465 turns F1-gap open)
+## M1.5 — harden M1 (Fable review) ✅ (F2 done; F1 backfill gap closed)
 - [x] **F2:** drop the ivfflat index (28% recall@10 at 2.5k rows); flat scan
       until >100k rows. Re-run all semantic-leg measurements after.
-- [ ] Finish the interrupted backfill (465 turns `extracted_at IS NULL`).
+- [x] Finish the interrupted backfill (465 turns `extracted_at IS NULL`).
+      Drained 2026-08-15 via `tools/backfill_pending.py`; `pending` 465 → 0,
+      +385 memories. The stall had three causes, all fixed — see
+      journal 019. Note the fixes matter more than the drain: an unreachable
+      gateway used to STAMP turns extracted with zero facts, so the backlog
+      could have silently erased itself instead.
 - [ ] Stage the F4 reclassification: `assistant_suggested` domain facts with no
       personal anchor → `knowledge` tier (needs M4 schema; flag now, sweep after).
 - Full findings: `docs/fable-review/04-handoff-queue.md`.
