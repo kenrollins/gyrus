@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # --- extraction ---
     extract_char_budget: int = 24000   # per window; long sessions are chunked
     extract_concurrency: int = 2       # parallel windows against one 70B lane
+    # How long the sweeper leaves backfill turns alone before treating them as
+    # stranded. Long enough not to race a running backfill, short enough that a
+    # dead one surfaces in days rather than never (worker._sweeper).
+    backfill_grace_hours: int = 24
     dedupe_threshold: float = 0.93     # cosine at/above this = corroboration
 
     # --- retrieval ---

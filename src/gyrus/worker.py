@@ -17,6 +17,7 @@ import asyncio
 import logging
 
 from . import db, extraction
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,24 @@ async def _sweeper(interval_s: int = 300) -> None:
         try:
             pool = await db.get_pool()
             # Backfill turns are covered by the WINDOW path (bigger context,
-            # ~6x fewer calls) and get marked when their session finishes.
-            # Without this exclusion the sweeper races the backfill, doing the
-            # same work per-turn and doubling load on an already-saturated box.
+            # ~6x fewer calls), so skipping them stops the sweeper racing a
+            # live backfill and doing the same work per-turn on an already
+            # saturated box. But the skip used to be UNCONDITIONAL, and a
+            # backfill that dies mid-run leaves its turns matching it forever:
+            # 465 turns sat unextracted for three days with no error and no
+            # retry, because the one component that would have caught them was
+            # told to ignore them (2026-08-15).
+            #
+            # So the exclusion is now a GRACE PERIOD, not an exemption. A
+            # backfill in flight is protected; one that died is eventually
+            # swept per-turn — worse context than a window, but the backlog
+            # drains and cannot silently rebuild. Run tools/backfill_pending.py
+            # to clear a known-stranded backlog properly (windowed) first.
             rows = await pool.fetch(
                 "SELECT id FROM episodic_turns WHERE extracted_at IS NULL"
-                " AND COALESCE(meta->>'backfill', 'false') <> 'true'"
-                " ORDER BY created_at LIMIT 50")
+                " AND (COALESCE(meta->>'backfill', 'false') <> 'true'"
+                "      OR created_at < now() - ($1 || ' hours')::interval)"
+                " ORDER BY created_at LIMIT 50", str(settings.backfill_grace_hours))
             for r in rows:
                 enqueue(r["id"])
             if rows:

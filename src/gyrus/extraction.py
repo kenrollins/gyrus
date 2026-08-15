@@ -9,6 +9,10 @@ Prompt lineage (all measured in tools/extraction-eval/):
          speaker is not Ken asserting), + explicit reference-capture rule
          (the graded recall gaps were ALL entity/reference-class: contact
          emails, a library name, a speaker attribution).
+  v1.1 — + source-document rule (github lane 2026-08-14: markdown TOC/link
+         lists extracted as "facts"; noise 1.6% -> 0.3% after the rule).
+  v1.2 — + email-newsletter rule (email lane 2026-08-15: skip sponsor blocks,
+         unsubscribe footers, polls; extract article claims as relayed).
 
 Model: kaiju/nemotron:70b. Scale is not the lever here — the 120B lost domain
 facts the 70B caught, and the flash tier extracted almost nothing (dry-run #2
@@ -28,7 +32,7 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1.1"
+PROMPT_VERSION = "v1.2"
 
 TIERS = ("procedural", "factual", "preference", "open_loop", "knowledge")
 PROVENANCE = ("ken_said", "observed", "relayed", "assistant_suggested")
@@ -85,6 +89,13 @@ Discernment rules (the whole point — most of the conversation is NOT memory):
   link lists, navigation, file/section listings, and any description of the
   document system itself ("has entries like journey-27", "related docs include
   adr/0004"). A list of document or section names is never a memory.
+- When the source document is an EMAIL NEWSLETTER, extract the claims of its
+  articles — announcements, findings, metrics, arguments, WHO shipped/said WHAT —
+  as knowledge with provenance "relayed", crediting the newsletter as the source.
+  SKIP its chrome: header navigation, sponsor/"in partnership with" ad blocks,
+  subscribe/unsubscribe boilerplate, privacy/legal footers, referral and job-board
+  CTAs, reader polls, social links, and any garbled or decorative text. Read-time
+  estimates and section headers are not memories.
 
 Return ONLY a JSON array (no markdown fences, no prose):
 [{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "...", "topic": ["..."]}]
@@ -177,10 +188,21 @@ async def extract_union(messages: Iterable[dict[str, Any]]) -> list[Fact]:
     """
     import asyncio
 
+    # The second opinion is a BONUS pass, so its lane being down must not fail
+    # the window — but the primary's silence must propagate (GatewayError), or
+    # the caller stamps the turn extracted having learned nothing. See
+    # gateway.chat_json.
     primary, secondary = await asyncio.gather(
         extract(messages),
         extract(messages, model=settings.extract_union_model) if settings.extract_union_model else _none(),
+        return_exceptions=True,
     )
+    if isinstance(primary, BaseException):
+        raise primary
+    if isinstance(secondary, BaseException):
+        logger.warning("union pass unavailable (%s); continuing on the primary alone",
+                       secondary)
+        secondary = []
     merged: dict[str, Fact] = {f.hash: f for f in primary}
     for f in secondary:
         merged.setdefault(f.hash, f)
@@ -201,11 +223,21 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
     then near-duplicate by cosine — a fact restated in different words is
     corroboration, not a new memory. Corroboration frequency IS the factual
     tier's reward signal (ADR-0002), so a duplicate is a signal, not waste.
+
+    Corroboration bumps are COLLECTED and applied once at the end, in id
+    order. Applied inline they were a deadlock generator: two concurrent
+    windows over the same session hit the same duplicates in different orders
+    and each held row locks for the rest of its transaction, so Postgres shot
+    one of them (measured 2026-08-15 — `DeadlockDetectedError` at 2 parallel
+    windows, which is also `extract_concurrency`'s default, so the live worker
+    could hit it too). One sorted statement means every writer takes these
+    locks in the same order and holds them for the shortest possible time.
     """
     if not facts:
         return 0
     vectors = await gateway.embed([f.fact for f in facts])
     written = 0
+    corroborate: dict[int, int] = {}       # memory id -> how many times bumped
     for f, vec in zip(facts, vectors):
         pgvec = gateway.to_pgvector(vec)
         # near-duplicate check (only possible when both sides have vectors)
@@ -216,9 +248,9 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
                 " ORDER BY embedding <=> $1::vector LIMIT 1",
                 pgvec, f.tier)
             if dup and dup["sim"] is not None and dup["sim"] >= settings.dedupe_threshold:
-                await conn.execute(
-                    "UPDATE memories SET corroboration_count = corroboration_count + 1,"
-                    " updated_at = now() WHERE id = $1", dup["id"])
+                # Counted, not just flagged: two facts in one window can land
+                # on the same memory, and that is two corroborations.
+                corroborate[dup["id"]] = corroborate.get(dup["id"], 0) + 1
                 continue
         row = await conn.fetchrow(
             "INSERT INTO memories (tier, fact, entities, provenance, embedding, fact_hash,"
@@ -237,4 +269,13 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
                     "INSERT INTO memory_entities (memory_id, entity, normalized)"
                     " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
                     [(row["id"], e, " ".join(e.lower().split())) for e in f.entities])
+    if corroborate:
+        # Sorted ids = a global lock order every writer agrees on, so two
+        # windows bumping the same memories can no longer deadlock.
+        ids = sorted(corroborate)
+        await conn.execute(
+            "UPDATE memories m SET corroboration_count = m.corroboration_count + v.n,"
+            " updated_at = now() FROM (SELECT unnest($1::bigint[]) AS id,"
+            " unnest($2::int[]) AS n) v WHERE m.id = v.id",
+            ids, [corroborate[i] for i in ids])
     return written

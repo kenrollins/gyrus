@@ -91,14 +91,28 @@ async def chat_json(
     max_tokens: int = 4000,
     timeout: float = 300.0,
 ) -> list[dict[str, Any]]:
-    """Chat completion whose answer is a JSON array. Returns [] on any failure.
+    """Chat completion whose answer is a JSON array.
 
     Tolerant parsing on purpose: every model in the lab wraps JSON differently
     (fences, prose preamble, a thinking block), and an extraction pass that
     throws on formatting noise would drop real facts. A malformed reply costs
     us one window, logged — never an exception into the caller.
+
+    But a model that ANSWERED "nothing here" and a lane that never answered at
+    all are not the same event, and collapsing them into `[]` is how a backlog
+    silently erases itself: /v1/extract-window stamps extracted_at on a
+    zero-fact result, so an unreachable gateway marked turns done while
+    learning nothing from them (measured 2026-08-15 — litellm-gw restarted
+    mid-window and every candidate model failed to connect). So:
+
+      - model responded, output unusable  -> []      (one window's loss, logged)
+      - NO candidate model responded      -> GatewayError
+
+    Callers that can retry (worker.py leaves extracted_at NULL; the backfill
+    leaves the turns on its work list) then retry instead of losing the turn.
     """
     models = [m for m in (model or settings.extract_model, settings.extract_fallback_model) if m]
+    responded = False
     body: dict[str, Any] = {
         "temperature": 0.0,
         "max_tokens": max_tokens,
@@ -113,6 +127,7 @@ async def chat_json(
                 r.raise_for_status()
                 payload = r.json()
                 text = (payload["choices"][0]["message"].get("content") or "").strip()
+                responded = True          # the lane is alive, whatever it said
                 objs = salvage_objects(text)
                 if not objs and text.strip() not in ("[]", ""):
                     logger.warning("extract(%s): no parsable objects (head=%r)", mdl, text[:200])
@@ -121,6 +136,8 @@ async def chat_json(
             except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError) as e:
                 logger.warning("extract(%s) attempt %d failed: %s", mdl, attempt + 1, e)
                 await asyncio.sleep(1.5 * (attempt + 1))
+    if not responded:
+        raise GatewayError(f"no model answered (tried {', '.join(models)})")
     return []
 
 

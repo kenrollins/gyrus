@@ -12,13 +12,15 @@ no model call ever sits on Pip's turn path.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, Query
+import asyncpg
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import __version__, db, retrieval, worker
@@ -104,20 +106,46 @@ async def extract_window(w: WindowIn) -> dict[str, Any]:
 
     Synchronous by design: the caller is a batch job that wants backpressure,
     not the agent. Nothing on Pip's turn path reaches this route.
+
+    The stamp and the facts share one transaction, so `extracted_at` means
+    "extraction ran over this turn" and the route is safe to call twice. That
+    only holds if a FAILED pass never stamps: an unreachable gateway used to
+    surface as zero facts and mark the turns done anyway, quietly consuming
+    the backlog. It now 503s with the turns untouched, so the caller retries.
     """
     from . import extraction
+    from .gateway import GatewayError
 
-    facts = await extraction.extract_union(w.messages)
+    try:
+        facts = await extraction.extract_union(w.messages)
+    except GatewayError as e:
+        logger.warning("extract-window: inference unavailable, %d turns left pending: %s",
+                       len(w.turn_ids), e)
+        raise HTTPException(status_code=503, detail=f"inference unavailable: {e}") from e
+    # A deadlock here is transient and Postgres expects the loser to retry —
+    # but the facts in hand cost a 70B window, so retry the TRANSACTION rather
+    # than throwing the inference away. persist() now orders its corroboration
+    # bumps to make this rare; this covers what ordering cannot guarantee.
     pool = await db.get_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            written = await extraction.persist(
-                conn, facts, turn_id=(w.turn_ids[-1] if w.turn_ids else None),
-                session_id=w.session_id)
-            if w.turn_ids:
-                await conn.execute(
-                    "UPDATE episodic_turns SET extracted_at = now() WHERE id = ANY($1::bigint[])",
-                    w.turn_ids)
+    for attempt in range(3):
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    written = await extraction.persist(
+                        conn, facts, turn_id=(w.turn_ids[-1] if w.turn_ids else None),
+                        session_id=w.session_id)
+                    if w.turn_ids:
+                        await conn.execute(
+                            "UPDATE episodic_turns SET extracted_at = now()"
+                            " WHERE id = ANY($1::bigint[])", w.turn_ids)
+            break
+        except asyncpg.exceptions.DeadlockDetectedError:
+            if attempt == 2:
+                logger.warning("extract-window: deadlock persisted, %d turns left pending",
+                               len(w.turn_ids))
+                raise
+            logger.info("extract-window: deadlock, retrying persist (attempt %d)", attempt + 2)
+            await asyncio.sleep(0.5 * (attempt + 1))
     return {"extracted": len(facts), "new": written,
             "facts": [{"tier": f.tier, "fact": f.fact, "provenance": f.provenance}
                       for f in facts]}
@@ -129,7 +157,15 @@ class MarkExtracted(BaseModel):
 
 @app.post("/v1/turns/mark-extracted")
 async def mark_extracted(m: MarkExtracted) -> dict[str, Any]:
-    """Backfill bookkeeping: these turns were covered by a window extraction."""
+    """Manual escape hatch: declare these turns covered, without extracting.
+
+    NOT the backfill's marking path any more. Marking separately from
+    extracting is what stranded 465 turns — a resumed run collected no ids and
+    so marked nothing, while re-extracting everything at full cost. Pass real
+    `turn_ids` to /v1/extract-window instead and let it stamp them in the same
+    transaction as the facts. Use this only to write off turns you have
+    decided NOT to extract (junk sessions, known-automated output).
+    """
     pool = await db.get_pool()
     await pool.execute(
         "UPDATE episodic_turns SET extracted_at = now()"

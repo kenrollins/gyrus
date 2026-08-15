@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 THALAMUS_URL = os.environ.get("THALAMUS_URL", "http://10.0.13.14:8000").rstrip("/")
 
 # Authored/curated source types: pre-vetted, bypass the front gate, extract all.
-TRUSTED_SOURCES = {"github", "notes", "conference"}
+# "email" qualifies because the edge collector (Pip VM pusher) only forwards
+# senders on the curated source-profile allowlist — the sender-authority gate
+# runs at the edge, not here. Raw unfiltered mail must never get this label.
+TRUSTED_SOURCES = {"github", "notes", "conference", "email"}
 
 
 async def _extract_item(conn, it: dict) -> int:
