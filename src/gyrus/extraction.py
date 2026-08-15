@@ -182,12 +182,22 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
     return out
 
 
-async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = None) -> list[Fact]:
-    """Run one window through the extraction pass."""
+async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = None,
+                  max_tokens: int | None = None) -> list[Fact]:
+    """Run one window through the extraction pass.
+
+    max_tokens is exposed for the lane bench: a THINKING model spends the
+    budget reasoning before it writes, so measuring one at the default is
+    measuring its budget, not its extraction. Three of the 120B's golden-set
+    runs in dry-run #3 read "thinking ate budget" / "truncated JSON" and were
+    recorded as quality results (ADR-0010).
+    """
     window = render_window(messages)
     if not window.strip():
         return []
-    raw = await gateway.chat_json(SYSTEM, f"Conversation window:\n\n{window}", model=model)
+    kw = {"max_tokens": max_tokens} if max_tokens else {}
+    raw = await gateway.chat_json(SYSTEM, f"Conversation window:\n\n{window}",
+                                  model=model, **kw)
     facts = _clean(raw)
     logger.info("extracted %d facts (%d chars in)", len(facts), len(window))
     return facts

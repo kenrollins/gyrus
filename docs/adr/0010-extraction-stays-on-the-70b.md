@@ -95,6 +95,56 @@ Three findings, in order of weight:
 The original claim was directionally right and factually wrong. The fast lane
 does not extract "almost nothing" — it extracts *plenty*, and badly.
 
+## Addendum (same day): the two 120B lanes, and what the union pass costs
+
+The first pass compared the 70B against the fast lanes only, and repeated the
+inherited "the 120B lost domain facts" line without testing it. That claim came
+from ONE window on the **v0** prompt, against `vllm/nemotron-120b`; the matrix
+run that followed scored that lane `0 (thinking ate budget)`, `HTTP 400`,
+`truncated JSON`, and three windows never run. It was never a measurement. Note
+also that gyrus has **two** 120B lanes and the docs conflate them:
+`vllm/nemotron-120b` is the *fallback*; `kaiju/gpt-oss:120b` is the *union
+second pass*, which runs on every extraction.
+
+Re-measured at `max_tokens=8000` (so a thinking model is not scored on its
+budget), same production path, fallback disabled:
+
+| lane | windows usable | facts | total s |
+|---|---|---|---|
+| `kaiju/nemotron:70b` | 6/6 | 35 | 190.5 |
+| `vllm/nemotron-120b` | **2/6** | 13 | 1787.4 |
+| `kaiju/gpt-oss:120b` | 6/6 | 65 | **145.2** |
+
+**The configured fallback does not work.** `vllm/nemotron-120b` hit the 300s
+`chat_json` ceiling on four of six windows — the 301.6s entries are timeouts,
+not slow successes. The lane that exists to cover a kaiju outage would itself
+fail on real window sizes. Either its timeout needs raising well past 300s, or
+the fallback should point at a lane that can answer inside one.
+
+**The union pass earns its place, and is not the expensive half.** gpt-oss:120b
+finished *faster* than the 70B and returns the reference layer the original
+n=1 note claimed — speaker rosters, `DOI 10.1038/s41578-021-00306-y`, contact
+addresses — which the 70B walks past. That justification now rests on six
+windows instead of one.
+
+**But the two models barely overlap, and the dedupe threshold cannot tell.**
+Of gpt-oss's 65 facts, **64 survive production's own 0.93-cosine dedupe against
+the 70B's 35** — a 2% absorption rate. Inspection shows some survivors are the
+same claim reworded ("Hybrid quantum computing combined with HPC is now
+considered…" vs "Hybrid quantum + HPC is now core, not side dressing"). Both
+are stored. A 400-memory sample of the live store finds **61 (15%) with a
+same-tier neighbour at ≥0.93**, and 143 (36%) at ≥0.90 — duplicates the
+system's own rule says should not exist.
+
+The likely mechanism is in `extraction.persist`: the near-duplicate check is
+guarded by `if pgvec is not None`, so whenever the embedder is unavailable —
+which the code explicitly expects under backfill load — dedupe is skipped
+entirely and the fact inserts unconditionally. `_embed_sweeper` supplies the
+vector afterwards, so the memory looks deduped forever after. Same failure
+shape as the rest of this ADR: an unavailable dependency degrading a result
+into something that looks correct. Tracked in TASKS.md; not fixed here,
+because the right threshold is itself an open question.
+
 ## Consequences
 
 - The workhorse is unchanged, so nothing in the hot path moves.

@@ -74,6 +74,18 @@ keep this honest — it's the fast read on where the build actually is.
       `run_matrix.py`, whose regex scored real output as zero facts — the same
       instrument that produced a fake verdict on the fast lane. Re-run the
       golden set under `bench_lanes.py` and correct or confirm them.
+- [ ] **The fallback lane times out** (ADR-0010 addendum). `vllm/nemotron-120b`
+      exceeded the 300s `chat_json` ceiling on 4 of 6 golden windows, so the
+      lane that covers a kaiju outage would itself fail. Raise its timeout well
+      past 300s, or repoint `extract_fallback_model` at a lane that answers
+      inside one. Cheap to fix, and it is a safety net that currently isn't one.
+- [ ] **~15% of the store is near-duplicate** (ADR-0010 addendum). A 400-memory
+      sample found 61 with a same-tier neighbour at ≥0.93 — at or above the
+      threshold that should have merged them. Suspected mechanism:
+      `persist()` guards the dedupe check with `if pgvec is not None`, so an
+      embedder timeout skips dedupe entirely and `_embed_sweeper` fills the
+      vector in later, leaving a duplicate that looks deduped. Confirm the
+      mechanism before fixing; the right threshold is its own question.
 - [ ] **Cron suppression does not work** (ADR-0010). The prompt says automated
       output yields nothing; on `cron-monday-brief` the 70B returns 6 facts and
       the fast lane 13, attributing a scheduled job's own brief to `ken_said`.

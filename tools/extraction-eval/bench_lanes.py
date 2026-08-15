@@ -68,17 +68,22 @@ async def warm(model: str) -> float:
     """Cold-load cost, paid once and reported rather than charged to window 1."""
     t0 = time.time()
     try:
+        # Budget generously even for a warm-up: a thinking model at
+        # max_tokens=64 spends the whole allowance reasoning and returns
+        # empty, which now (correctly) raises — a harness artifact, not a
+        # property of the lane.
         await gateway.chat_json("Reply with a JSON array.", "Return []", model=model,
-                                max_tokens=64)
+                                max_tokens=1024)
     except Exception as e:                                       # noqa: BLE001
         print(f"  warm {model}: {type(e).__name__}: {str(e)[:80]}", flush=True)
     return time.time() - t0
 
 
-async def run_window(model: str, w: dict) -> dict:
+async def run_window(model: str, w: dict, max_tokens: int | None = None) -> dict:
     t0 = time.time()
     try:
-        facts = await extraction.extract(w["messages"], model=model)
+        facts = await extraction.extract(w["messages"], model=model,
+                                         max_tokens=max_tokens)
         return {"ok": True, "seconds": round(time.time() - t0, 1),
                 "n": len(facts),
                 "facts": [{"tier": f.tier, "provenance": f.provenance,
@@ -95,6 +100,10 @@ async def main() -> int:
     ap.add_argument("--goldens", default=str(pathlib.Path(__file__).parent / "goldens"))
     ap.add_argument("--models", nargs="*", default=LANES)
     ap.add_argument("--out", default="")
+    ap.add_argument("--max-tokens", type=int, default=0,
+                    help="override the completion budget. A THINKING model reasons "
+                         "before it writes, so the default measures its budget, not "
+                         "its extraction (ADR-0010).")
     args = ap.parse_args()
 
     gold_dir = pathlib.Path(args.goldens)
@@ -107,7 +116,8 @@ async def main() -> int:
     settings.extract_fallback_model = ""
 
     print(f"{len(windows)} windows x {len(args.models)} lanes "
-          f"(prompt {extraction.PROMPT_VERSION}, fallback disabled)\n", flush=True)
+          f"(prompt {extraction.PROMPT_VERSION}, fallback disabled, "
+          f"max_tokens={args.max_tokens or 'default 4000'})\n", flush=True)
 
     print("warming lanes (kaiju is on-demand; a cold load is ~50s)...", flush=True)
     for m in args.models:
@@ -119,7 +129,7 @@ async def main() -> int:
         results[m] = {}
         for wp in windows:
             w = json.loads(wp.read_text())
-            r = await run_window(m, w)
+            r = await run_window(m, w, args.max_tokens)
             results[m][wp.stem] = r
             status = (f"{r['n']:2d} facts" if r["ok"] else f"FAILED {r.get('error','')[:60]}")
             print(f"  {m:30s} {wp.stem:20s} {r['seconds']:6.1f}s  {status}", flush=True)
