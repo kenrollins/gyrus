@@ -139,6 +139,13 @@ async def extract_window(w: WindowIn) -> dict[str, Any]:
                             "UPDATE episodic_turns SET extracted_at = now()"
                             " WHERE id = ANY($1::bigint[])", w.turn_ids)
             break
+        except GatewayError as e:
+            # persist() refuses to write undeduped when the embedder is down
+            # (same contract as the extract call above): the transaction rolled
+            # back, the turns are still pending — tell the caller to retry.
+            logger.warning("extract-window: embedder unavailable, %d turns left pending: %s",
+                           len(w.turn_ids), e)
+            raise HTTPException(status_code=503, detail=f"embedder unavailable: {e}") from e
         except asyncpg.exceptions.DeadlockDetectedError:
             if attempt == 2:
                 logger.warning("extract-window: deadlock persisted, %d turns left pending",

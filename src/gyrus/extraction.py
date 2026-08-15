@@ -269,6 +269,17 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
     if not facts:
         return 0
     vectors = await gateway.embed([f.fact for f in facts])
+    # No vector means the near-duplicate check below cannot run, and a fact
+    # inserted unchecked looks deduped forever once the sweeper backfills its
+    # embedding (audit brief 2026-08-15 #9; measured footprint: turn 823,
+    # journal-021). Ken's ruling: the WRITE path fails loudly and lets the
+    # caller retry (worker leaves extracted_at NULL, /v1/extract-window 503s,
+    # ingest holds its cursor) rather than insert undeduped. embed()'s
+    # None-tolerance is for the RETRIEVAL path, which degrades to two legs —
+    # that behaviour is deliberate and unchanged.
+    if any(v is None for v in vectors):
+        raise gateway.GatewayError(
+            f"embedder unavailable; refusing to persist {len(facts)} facts undeduped")
     written = 0
     corroborate: dict[int, int] = {}       # memory id -> how many times bumped
     fresh: set[int] = set()                # inserted by THIS call

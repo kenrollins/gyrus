@@ -119,3 +119,32 @@ def test_render_marks_relayed_provenance():
 
 def test_render_empty_is_empty_string():
     assert retrieval.render([]) == ""
+
+
+# --- persist: embed backpressure (audit brief #9, journal-021) -------------
+
+def test_persist_refuses_to_insert_undeduped_when_embedder_is_down(monkeypatch):
+    """No vector -> no near-dup check -> a duplicate that looks deduped forever
+    once the sweeper backfills the embedding. Ken's ruling (2026-08-15): the
+    write path fails LOUDLY and the caller retries; it must never insert
+    unchecked. (The retrieval path's None-tolerance is separate and intact.)"""
+    import asyncio
+
+    import pytest
+
+    from gyrus import gateway
+
+    async def dead_embed(texts, **kw):
+        return [None] * len(texts)
+
+    monkeypatch.setattr(gateway, "embed", dead_embed)
+
+    class UntouchableConn:
+        def __getattr__(self, name):
+            raise AssertionError(f"persist touched the DB ({name}) with no vectors")
+
+    fact = extraction.Fact(tier="factual", fact="the embedder was down for this one",
+                           entities=[], provenance="observed")
+    with pytest.raises(gateway.GatewayError):
+        asyncio.run(extraction.persist(UntouchableConn(), [fact],
+                                       turn_id=None, session_id=None))

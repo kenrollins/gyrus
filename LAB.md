@@ -17,7 +17,7 @@ so it may never need a passkey hostname).
 | Private backends | `gyrus_net` bridge (no VLAN address) for anything that must not face the DMZ |
 | Shared Postgres | `10.0.13.220:5432` — **be a client** (own DB `gyrus`), don't stand up a rival |
 | Neo4j + Graphiti | `10.0.13.224` (bolt `:7687`) — reflective/bi-temporal tier |
-| Inference | gateway `http://10.0.13.201:4000/v1` — extraction + embeddings. Mint a scoped key `gyrus` at kickoff (into `/data/docker/gyrus/.env`, 600) |
+| Inference | gateway `http://10.0.13.201:4000/v1` — extraction + embeddings. Scoped key `gyrus` in `/data/docker/gyrus/.env` (600). Scope (2026-08-15, ADR-0012): the lab shapes `lab/extract`, `lab/extract-union`, `lab/reason`, `lab/embed`, `lab/flash`, plus the concrete `kaiju/*`/`vllm/*` ids for `bench_lanes.py` |
 | Embeddings | **decided (ADR-0005):** gateway `kaiju/mxbai-embed-large`, `vector(1024)`; `bge-m3` (same dim) is the upgrade path |
 | Prometheus | scrape target added at kickoff (consolidation runs, memory counts, recall latency) |
 

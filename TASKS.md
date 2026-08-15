@@ -67,8 +67,12 @@ keep this honest — it's the fast read on where the build actually is.
       journal 019. Note the fixes matter more than the drain: an unreachable
       gateway used to STAMP turns extracted with zero facts, so the backlog
       could have silently erased itself instead.
-- [ ] Stage the F4 reclassification: `assistant_suggested` domain facts with no
-      personal anchor → `knowledge` tier (needs M4 schema; flag now, sweep after).
+- [x] F4 reclassification — done in two passes: the 2026-08-13 heuristic sweep
+      (709 moved) and the 2026-08-15 full LLM pass over every live factual row
+      (`tools/store-audit/retier_classify.py`: 1,031 world-labeled rows →
+      knowledge, `source_type='conversation'`; conservative on ambiguous;
+      12/16 agreement with the hand-graded sample, all disagreements
+      in the stay-put direction). journal-022.
 - [ ] **Re-verify the prompt-lineage numbers** (ADR-0010). The v0/v0.1/v1
       keep-rate and noise figures quoted in `extraction.py` came from
       `run_matrix.py`, whose regex scored real output as zero facts — the same
@@ -91,12 +95,15 @@ keep this honest — it's the fast read on where the build actually is.
       (one call at 2026-08-15 03:01:52, turn 823, inserted 3 facts undeduped
       during an embed failure) but accounts for only ~10 pairs. Zero
       same-source_key pairs — the 0006 independence rule is holding.
-      Remaining work: (a) Ken's ruling — `persist()` fails loudly instead of
-      inserting undeduped (cheap insurance; write path only, leave retrieval's
-      no-vector tolerance alone); (b) one-time legacy sweep — lower the dream
-      pass's 0.97 merge backstop to 0.93 for one run to fold the 177 pre-0003
-      pairs; (c) the 0.90–0.93 band (1,045 pairs — union-pass rewordings live
-      here) is the real threshold question, still open.
+      Remaining work — (a) and (b) CLOSED 2026-08-15 (journal-022):
+      (a) ✅ `persist()` now raises `GatewayError` on a vectorless batch (Ken's
+      ruling; write path only — retrieval's no-vector tolerance intact;
+      regression test in test_m1.py; `/v1/extract-window` translates to 503);
+      (b) ✅ one-time 0.93 merge sweep ran via the dream pass — 256 merges, more
+      than the 187 measured pairs because the same-day re-tier converted
+      cross-tier duplicates into foldable same-tier pairs; resident backstop
+      stays 0.97. (c) the 0.90–0.93 band (~1,045 pairs — union-pass rewordings
+      live here) is the real threshold question, STILL OPEN.
 - [ ] **Cron suppression does not work** (ADR-0010). The prompt says automated
       output yields nothing; on `cron-monday-brief` the 70B returns 6 facts and
       the fast lane 13, attributing a scheduled job's own brief to `ken_said`.

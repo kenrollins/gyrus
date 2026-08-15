@@ -21,16 +21,21 @@ class Settings(BaseSettings):
     litellm_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("GYRUS_LITELLM_API_KEY", "LITELLM_API_KEY"))
-    embed_model: str = "kaiju/mxbai-embed-large"      # ADR-0005; vector(1024)
-    # Extraction workhorse. Keeps the job on measured evidence (ADR-0010):
-    # 6/6 golden windows usable, holds the JSON contract and the tier
-    # assignments the fast lane drops. (An earlier comment here claimed "the
-    # 120B lost domain facts" — that came from one window on the v0 prompt and
-    # is discredited; see ADR-0010.)
-    extract_model: str = "kaiju/nemotron:70b"
-    # Used when the primary lane is down — GB10/L4 lanes are batch-claimed,
-    # kaiju's are on-demand, so the fallback deliberately sits on other silicon.
-    extract_fallback_model: str = "vllm/nemotron-120b"
+    # MODEL-SHAPE INDIRECTION (ADR-0012, Ken 2026-08-15): gyrus names the SHAPE
+    # of the work; the gateway maps shapes to engines. Swapping an engine is a
+    # gateway-config change plus a bench_lanes.py pass — never a gyrus change.
+    # The measured bindings behind these names (as of 2026-08-15, ADR-0010):
+    #   lab/embed         -> mxbai-embed-large on kaiju (ADR-0005; vector(1024))
+    #   lab/extract       -> nemotron:70b on kaiju (holds the JSON contract 6/6)
+    #   lab/extract-union -> gpt-oss:120b on kaiju (engine-diverse 2nd opinion)
+    #   lab/reason        -> nemotron-120b on the GB10 (non-kaiju silicon)
+    embed_model: str = "lab/embed"
+    # Extraction workhorse — see ADR-0010 for why this shape binds to the 70B.
+    # (The old "120B lost domain facts" claim is discredited; same ADR.)
+    extract_model: str = "lab/extract"
+    # Used when the primary lane is down. lab/reason deliberately sits on
+    # non-kaiju silicon (the GB10), so a kaiju outage can't take both lanes.
+    extract_fallback_model: str = "lab/reason"
     # That silicon is slow on real windows: ADR-0010's addendum measured this
     # lane exceeding the default 300s chat_json ceiling on 4 of 6 golden
     # windows — the safety net failed exactly when it was needed. The lane only
@@ -39,12 +44,12 @@ class Settings(BaseSettings):
     # contract (ADR-0010).
     extract_fallback_timeout: float = 900.0
     # Second opinion merged into the primary result. Measured 2026-08-12 on the
-    # panel window: the 70B returns the DOMAIN insights (ecosystem shift,
-    # quantum+HPC coupling, modularity) while gpt-oss returns the REFERENCE
-    # layer (three contact addresses, exact format specs, an open loop) — the
-    # precise gap the golden-set grading flagged. Complementary, not redundant;
-    # both idle on kaiju, so the second pass is free. Empty disables.
-    extract_union_model: str = "kaiju/gpt-oss:120b"
+    # panel window: the primary returns the DOMAIN insights (ecosystem shift,
+    # quantum+HPC coupling, modularity) while the union engine returns the
+    # REFERENCE layer (three contact addresses, exact format specs, an open
+    # loop) — the precise gap the golden-set grading flagged. Complementary,
+    # not redundant. Empty disables.
+    extract_union_model: str = "lab/extract-union"
 
     host: str = "0.0.0.0"
     port: int = 8000
