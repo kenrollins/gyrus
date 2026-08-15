@@ -77,16 +77,21 @@ The knowledge-memory track's foundation, inside gyrus.
 - **Done when:** the conference corpus is queryable AND browsable as knowledge,
   and it never dilutes a personal-memory recall.
 
-## M5 — thalamus + first live source (ADR-0006/0007) ◑ arXiv LIVE 2026-08-13
+## M5 — thalamus + live sources (ADR-0006/0007) ◕ arXiv + GitHub + email LIVE
 gyrus's side is thin (consume the contract); **thalamus is its own project/repo**
 built in parallel (see Companion projects). This milestone is where they meet.
-- **Email:** reconnect `pip_signal_memory_bridge` output → knowledge tier
-  (closes the leak the OpenBrain retirement opened — insights currently dropped).
-  Fastest win; proves the contract end-to-end on a pipeline that already works.
-- **Conference/notes:** retag the existing harvest flow into the knowledge tier.
-- **Consume thalamus** for podcast + arXiv once its adapters land.
+- **arXiv** ✅ 2026-08-13: watchlist-targeted fetch (gyrus-derived topics).
+- **GitHub** ✅ 2026-08-14: Ken's repo journals/READMEs, 830 docs → 6.3k facts.
+- **Email** ✅ 2026-08-15 (ADR-0009): edge-collector push from the Pip VM's live
+  Gmail pipeline; sender-allowlist gate at the edge; 311 high-value-sub
+  newsletters backfilled → 1.9k facts; cron'd every 6h. Closed the OpenBrain
+  leak without moving a credential. Also forced the corroboration-independence
+  fix (`source_key`, migration 0006 — journal 018).
+- **Podcast:** the remaining source (Whisper transcription — recon the Pip VM
+  first; `pip_episode_capture.py` exists).
 - **Done when:** a new high-signal item from each live source appears in
-  `/v1/insights` within its cadence, attributed to its source.
+  `/v1/insights` within its cadence, attributed to its source. ✅ for the
+  three live lanes (verified 2026-08-15).
 
 ## M9 — earned-value promotion to RAGFlow (ADR-0008) — FUTURE
 Gated on the dream pass being proven (M2) and RAGFlow being live (its own
