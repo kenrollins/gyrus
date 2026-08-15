@@ -36,6 +36,22 @@ And a ninth, found last and probably the most consequential for the store:
 
 | 9 | `extraction.persist` | embedder unavailable | dedupe is guarded by `if pgvec is not None`, so the near-duplicate check is **skipped entirely** and the fact inserts unconditionally. `_embed_sweeper` supplies the vector afterwards, so the memory looks deduped forever after. |
 
+**#9's mechanism is confirmed, not suspected** — it is what the code does, not
+an inference. `gateway.embed` returns `[None] * len(texts)` on failure (by
+design: "a memory with no vector is still a memory"), `to_pgvector(None)`
+returns `None`, and `persist`'s `if pgvec is not None:` then skips the
+near-duplicate check for *every fact in that call*. Embed failures demonstrably
+occur — `embed attempt 2 failed for 17 texts: All connection attempts failed`
+was logged during a gateway restart on 2026-08-15 (that container has since
+been rebuilt, so the line is no longer retrievable; the code path is). What is
+**not** yet quantified is how much of the observed 15% came from this path
+versus other causes. That is the measurement to take before fixing.
+
+**This pattern is not confined to gyrus.** thalamus commit `2448aa2` reads
+*"arxiv: detect 429 and abort run cleanly (was silently returning 0)"* — the
+same failure-becomes-a-plausible-zero defect, found independently in the
+upstream service. Treat it as a lab-wide review lens, not a gyrus quirk.
+
 **What to do with this.** When auditing, do not ask "does this code work?" Ask
 **"what does this code do when its dependency is unavailable, and is that
 outcome distinguishable from success?"** Every one of the nine above passes the
@@ -246,14 +262,46 @@ the container runs the **installed** package, so source edits need
 
 ---
 
-## 8. Questions for Ken
+## 8. Decisions from Ken (2026-08-15) — these are settled, act on them
 
-1. **Is 72%-knowledge / 28%-personal the intended shape?** If yes, BRIEF.md and
-   ADR-0002 should say so, and retrieval should be evaluated against it. If no,
-   the trusted-path volume needs a gate.
-2. **Tier indirection** — the lab contract says request a *tier*, never a model
-   name; gyrus hardcodes four model names. The key currently grants `lab/flash`
-   but **not** `lab/embed` or `lab/reason`, so a full move needs scope.
-3. **Should `persist` apply backpressure when it cannot embed** — refuse the
-   write rather than insert undeduped? That is a durability-vs-correctness call.
-4. **Push?** 13 commits are unpushed on `main`.
+1. **The 72/28 split is happenstance, not design.** Ken has no preference on
+   the ratio. So it is not a documentation fix — it means nothing currently
+   *governs* the mix, and the trusted-path firehose sets it by volume alone.
+   Do not "correct" the ratio to a target; establish whether the knowledge tier
+   is *earning its place* (retrieval, browse, corroboration) and let that drive
+   any gate. Relevant: ADR-0008 already ties retention to earned value; it is
+   simply not applied to the trusted path.
+
+2. **Commit to model-shape indirection.** Ken: *"what we were going for was
+   model shape — and we could always swap the actual models out in the
+   background. If that is still a valid concept, I say we commit to it."* It
+   is still valid, and it is exactly what the lab contract now asks for
+   (request a TIER, never a model name). Config moves from four hardcoded model
+   ids to shapes.
+   **Blocker to raise early:** the gyrus key currently grants `lab/flash` but
+   **not** `lab/embed` or `lab/reason`, so a full move needs scope from Ken
+   first. Interim shape: introduce the indirection layer with the current model
+   ids behind it, so the swap later is config, not code. Also note ADR-0010's
+   finding that `lab/flash` and `vllm/nemotron-lightning-l4` are one backend
+   under two names — the shape layer should collapse that.
+
+3. **`persist` gets correctness-first backpressure, and must fail loudly.**
+   Ken: *"I want correctness above all but it doesn't need to silently fail."*
+   So: when the embedder is unavailable, `persist` must NOT insert undeduped.
+   Fail visibly and let the caller retry — the callers are already built for
+   it (`worker._extract_turn` leaves `extracted_at` NULL, `/v1/extract-window`
+   503s, `backfill_pending.py` retries). This is the same fix already applied
+   to `chat_json` in `ab691a1`, one layer down.
+   **Do the measurement first** (how much of the 15% came from this path), then
+   fix. Fixing before measuring is the habit that produced this brief.
+   Note the tension to resolve explicitly: `gateway.embed`'s "a memory with no
+   vector is still a memory" is a *deliberate* durability choice for retrieval
+   (hybrid recall survives without a vector). Ken's ruling overrides it for the
+   **write/dedupe** path only — do not remove the tolerance from the retrieval
+   path by accident.
+
+## 9. Still open
+
+- **Push?** Answered: pushed 2026-08-15.
+- Whether the extraction prompt is good, and whether the store is good —
+  section 6 is the plan for finding out.
