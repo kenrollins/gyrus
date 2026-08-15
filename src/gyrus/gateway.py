@@ -127,9 +127,21 @@ async def chat_json(
                 r.raise_for_status()
                 payload = r.json()
                 text = (payload["choices"][0]["message"].get("content") or "").strip()
-                responded = True          # the lane is alive, whatever it said
+                # EMPTY CONTENT IS NOT AN ANSWER. A thinking model that runs
+                # out of budget mid-reasoning returns "" — the lab measured 3
+                # of 5 prompts coming back empty at max_tokens=2200 on
+                # lab/reason-fast (2026-08-15). Treating "" as "nothing worth
+                # keeping" is the same silent-erasure bug as an unreachable
+                # gateway, one door over: the caller stamps the turns
+                # extracted having learned nothing. "[]" IS an answer — the
+                # model looked and found nothing. "" means it never spoke.
+                if not text:
+                    logger.warning("extract(%s): empty content — treating as failure,"
+                                   " not as zero facts (thinking budget?)", mdl)
+                    continue
+                responded = True          # gave usable content, whatever it said
                 objs = salvage_objects(text)
-                if not objs and text.strip() not in ("[]", ""):
+                if not objs and text != "[]":
                     logger.warning("extract(%s): no parsable objects (head=%r)", mdl, text[:200])
                     continue
                 return objs

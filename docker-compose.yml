@@ -16,6 +16,16 @@ services:
     container_name: gyrus
     restart: unless-stopped
     env_file: /data/docker/gyrus/.env
+    volumes:
+      # The dream pass writes its report here (consolidate.py creates the
+      # directory on demand, so without this bind it succeeds into
+      # container-local disk and the evidence dies on the next `up --build`).
+      # Two reports from the first full-corpus committed consolidation were
+      # lost exactly that way on 2026-08-15. The dream pass IS the thesis
+      # (ADR-0002); its output is the record that it ran and what it decided.
+      # Bind the DIRECTORY, never a file — single-file binds pin the inode and
+      # edits silently never land (platform gotcha).
+      - /data/docker/gyrus/dream-reports:/data/dream-reports
     networks:
       gyrus_net: {}
       dmz13:
