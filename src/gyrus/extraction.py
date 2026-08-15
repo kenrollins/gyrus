@@ -216,13 +216,21 @@ async def _none() -> list[Fact]:
 
 
 async def persist(conn, facts: list[Fact], *, turn_id: int | None,
-                  session_id: str | None, source_ref: str | None = None) -> int:
+                  session_id: str | None, source_ref: str | None = None,
+                  source_key: str | None = None) -> int:
     """Write facts to the semantic tier, embedding and deduping as we go.
 
     Dedupe is two-stage: exact hash (a partial unique index does the work),
     then near-duplicate by cosine — a fact restated in different words is
     corroboration, not a new memory. Corroboration frequency IS the factual
     tier's reward signal (ADR-0002), so a duplicate is a signal, not waste.
+
+    BUT corroboration requires INDEPENDENCE. A newsletter's templated footer
+    recurs in every issue; folding each recurrence into corroboration let a
+    legal-footer "fact" reach 29x from one source talking to itself (measured
+    2026-08-15, email backfill). source_key names the canonical origin
+    (newsletter, repo, paper); a near-dup from the SAME source_key is dropped
+    without a bump. None (conversation path) keeps the original behaviour.
 
     Corroboration bumps are COLLECTED and applied once at the end, in id
     order. Applied inline they were a deadlock generator: two concurrent
@@ -243,25 +251,28 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
         # near-duplicate check (only possible when both sides have vectors)
         if pgvec is not None:
             dup = await conn.fetchrow(
-                "SELECT id, 1 - (embedding <=> $1::vector) AS sim FROM memories"
+                "SELECT id, source_key, 1 - (embedding <=> $1::vector) AS sim FROM memories"
                 " WHERE retired_at IS NULL AND tier = $2 AND embedding IS NOT NULL"
                 " ORDER BY embedding <=> $1::vector LIMIT 1",
                 pgvec, f.tier)
             if dup and dup["sim"] is not None and dup["sim"] >= settings.dedupe_threshold:
                 # Counted, not just flagged: two facts in one window can land
-                # on the same memory, and that is two corroborations.
-                corroborate[dup["id"]] = corroborate.get(dup["id"], 0) + 1
+                # on the same memory, and that is two corroborations — unless
+                # the duplicate is the same source repeating itself.
+                if not (source_key is not None and dup["source_key"] == source_key):
+                    corroborate[dup["id"]] = corroborate.get(dup["id"], 0) + 1
                 continue
         row = await conn.fetchrow(
             "INSERT INTO memories (tier, fact, entities, provenance, embedding, fact_hash,"
-            " source_turn_id, source_session_id, extractor, source_type, source_ref, topic)"
-            " VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8, $9, $10, $11, $12)"
+            " source_turn_id, source_session_id, extractor, source_type, source_ref, topic,"
+            " source_key)"
+            " VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8, $9, $10, $11, $12, $13)"
             " ON CONFLICT (fact_hash) WHERE retired_at IS NULL DO UPDATE"
             "   SET corroboration_count = memories.corroboration_count + 1, updated_at = now()"
             " RETURNING id, (xmax = 0) AS inserted",
             f.tier, f.fact, f.entities, f.provenance, pgvec, f.hash,
             turn_id, session_id, f"{settings.extract_model}:{PROMPT_VERSION}",
-            f.source_type, source_ref, f.topic)
+            f.source_type, source_ref, f.topic, source_key)
         if row and row["inserted"]:
             written += 1
             if f.entities:

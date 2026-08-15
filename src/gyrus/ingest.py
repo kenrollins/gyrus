@@ -35,6 +35,18 @@ THALAMUS_URL = os.environ.get("THALAMUS_URL", "http://10.0.13.14:8000").rstrip("
 TRUSTED_SOURCES = {"github", "notes", "conference", "email"}
 
 
+def _source_key(it: dict) -> str:
+    """Canonical origin identity for the independence check in persist():
+    a near-dup within the same key is one source repeating itself (a
+    newsletter's issues, versions of one repo doc), never corroboration."""
+    src, ref = it["source_type"], it["source_ref"]
+    if src == "email":
+        return f"email:{(it.get('author') or 'unknown').lower()}"   # the newsletter
+    if src == "github":
+        return f"github:{ref.split(':', 1)[0]}"                     # the repo
+    return f"{src}:{ref}"                                           # the document
+
+
 async def _extract_item(conn, it: dict) -> int:
     """Extract one source item into the knowledge tier, labelled by its real
     source (never hardcoded — a github journal is not an arXiv paper)."""
@@ -51,7 +63,8 @@ async def _extract_item(conn, it: dict) -> int:
             f.topic = it.get("topic") or []
     async with conn.transaction():
         return await extraction.persist(
-            conn, facts, turn_id=None, session_id=None, source_ref=ref)
+            conn, facts, turn_id=None, session_id=None, source_ref=ref,
+            source_key=_source_key(it))
 
 
 async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int) -> dict:
