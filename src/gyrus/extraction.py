@@ -295,7 +295,9 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
 
 
 async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = None,
-                  max_tokens: int | None = None) -> list[Fact]:
+                  max_tokens: int | None = None,
+                  timeout: float | None = None,
+                  template_kwargs: dict[str, Any] | None = None) -> list[Fact]:
     """Run one window through the extraction pass.
 
     max_tokens is exposed for the lane bench: a THINKING model spends the
@@ -303,11 +305,23 @@ async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = Non
     measuring its budget, not its extraction. Three of the 120B's golden-set
     runs in dry-run #3 read "thinking ate budget" / "truncated JSON" and were
     recorded as quality results (ADR-0010).
+
+    timeout is exposed for the same reason, one layer down. chat_json's 300s
+    ceiling is only lifted for the configured fallback model, and the bench
+    blanks the fallback so each lane answers for itself — so a slow lane under
+    test got 300s no matter what settings.extract_fallback_timeout said. A
+    lane that cannot finish inside the ceiling scores as a quality failure
+    when it is really a clock failure, which is the exact confusion ADR-0010
+    was written to correct.
     """
     window = render_window(messages)
     if not window.strip():
         return []
-    kw = {"max_tokens": max_tokens} if max_tokens else {}
+    kw: dict[str, Any] = {"max_tokens": max_tokens} if max_tokens else {}
+    if timeout:
+        kw["timeout"] = timeout
+    if template_kwargs:
+        kw["template_kwargs"] = template_kwargs
     raw = await gateway.chat_json(SYSTEM, f"Conversation window:\n\n{window}",
                                   model=model, **kw)
     facts = _clean(raw)

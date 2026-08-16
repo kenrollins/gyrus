@@ -90,6 +90,7 @@ async def chat_json(
     model: str | None = None,
     max_tokens: int = 4000,
     timeout: float = 300.0,
+    template_kwargs: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Chat completion whose answer is a JSON array.
 
@@ -110,6 +111,13 @@ async def chat_json(
 
     Callers that can retry (worker.py leaves extracted_at NULL; the backfill
     leaves the turns on its work list) then retry instead of losing the turn.
+
+    template_kwargs reaches the engine's chat template — in practice
+    {"enable_thinking": False}. The gateway pins this on the flash lanes but
+    not on vllm/nemotron-120b, so that lane runs a REASONING model with
+    thinking on against a structured-JSON task and spends its budget
+    deliberating. Exposed for the lane bench, which is the only caller that
+    needs to vary it.
     """
     models = [m for m in (model or settings.extract_model, settings.extract_fallback_model) if m]
     responded = False
@@ -119,6 +127,8 @@ async def chat_json(
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
     }
+    if template_kwargs:
+        body["chat_template_kwargs"] = template_kwargs
     async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt, mdl in enumerate(models):
             try:

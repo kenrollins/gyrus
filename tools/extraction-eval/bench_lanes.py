@@ -79,11 +79,14 @@ async def warm(model: str) -> float:
     return time.time() - t0
 
 
-async def run_window(model: str, w: dict, max_tokens: int | None = None) -> dict:
+async def run_window(model: str, w: dict, max_tokens: int | None = None,
+                     timeout: float | None = None,
+                     template_kwargs: dict | None = None) -> dict:
     t0 = time.time()
     try:
         facts = await extraction.extract(w["messages"], model=model,
-                                         max_tokens=max_tokens)
+                                         max_tokens=max_tokens, timeout=timeout,
+                                         template_kwargs=template_kwargs)
         return {"ok": True, "seconds": round(time.time() - t0, 1),
                 "n": len(facts),
                 "facts": [{"tier": f.tier, "provenance": f.provenance,
@@ -104,6 +107,18 @@ async def main() -> int:
                     help="override the completion budget. A THINKING model reasons "
                          "before it writes, so the default measures its budget, not "
                          "its extraction (ADR-0010).")
+    ap.add_argument("--timeout", type=float, default=0,
+                    help="override chat_json's 300s ceiling. A lane slower than the "
+                         "ceiling scores as a quality failure when it is a clock "
+                         "failure: at a measured 16 tok/s, vllm/nemotron-120b needs "
+                         "~500s to spend an 8000-token budget and cannot finish "
+                         "inside 300s at all.")
+    ap.add_argument("--no-think", action="store_true",
+                    help="send chat_template_kwargs={'enable_thinking': false}. The "
+                         "gateway pins this on the flash lanes but NOT on "
+                         "vllm/nemotron-120b, so that lane has only ever been "
+                         "measured with thinking on — against a task whose output "
+                         "is a JSON array.")
     args = ap.parse_args()
 
     gold_dir = pathlib.Path(args.goldens)
@@ -117,7 +132,8 @@ async def main() -> int:
 
     print(f"{len(windows)} windows x {len(args.models)} lanes "
           f"(prompt {extraction.PROMPT_VERSION}, fallback disabled, "
-          f"max_tokens={args.max_tokens or 'default 4000'})\n", flush=True)
+          f"max_tokens={args.max_tokens or 'default 4000'}, "
+          f"timeout={args.timeout or 'default 300'}s)\n", flush=True)
 
     print("warming lanes (kaiju is on-demand; a cold load is ~50s)...", flush=True)
     for m in args.models:
@@ -129,7 +145,8 @@ async def main() -> int:
         results[m] = {}
         for wp in windows:
             w = json.loads(wp.read_text())
-            r = await run_window(m, w, args.max_tokens)
+            r = await run_window(m, w, args.max_tokens, args.timeout or None,
+                                 {"enable_thinking": False} if args.no_think else None)
             results[m][wp.stem] = r
             status = (f"{r['n']:2d} facts" if r["ok"] else f"FAILED {r.get('error','')[:60]}")
             print(f"  {m:30s} {wp.stem:20s} {r['seconds']:6.1f}s  {status}", flush=True)
