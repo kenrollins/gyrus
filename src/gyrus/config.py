@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     backfill_grace_hours: int = 24
     dedupe_threshold: float = 0.93     # cosine at/above this = corroboration
 
+    # --- auth (M7 / Fable F3) ---
+    # Bearer token for the API and MCP face. Empty = open (the pre-M7 LAN
+    # posture); set = required on everything except /health. F3's finding:
+    # the store outgrew the reachability decision made against M0's episodic
+    # scratch — ~10k extracted personal facts deserve a credential even
+    # LAN-side, and the MCP face must never ship without one.
+    api_token: str = ""
+
     # --- consolidation (M2) ---
     # The dream sweeper runs a committed consolidation whenever the store's
     # max(consolidated_at) is older than this. 0 disables (manual only).

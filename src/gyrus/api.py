@@ -33,12 +33,37 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     await db.migrate()
     await worker.start(settings.extract_concurrency)
-    yield
+    # The MCP face (ADR-0003/M7) rides the same process and lifespan —
+    # one store, two faces, one deployment.
+    from . import mcp_face
+    async with mcp_face.mcp.session_manager.run():
+        yield
     await worker.stop()
     await db.close_pool()
 
 
 app = FastAPI(title="gyrus", version=__version__, lifespan=lifespan)
+
+from . import mcp_face                                    # noqa: E402
+app.mount("/mcp", mcp_face.http_app())
+
+
+@app.middleware("http")
+async def _require_token(request, call_next):
+    """M7 auth (Fable F3). /health stays open for monitoring; everything
+    else — /v1/* and the MCP face — needs the bearer when a token is set.
+    Constant-time comparison; an empty configured token means the historic
+    open-LAN posture and changes nothing."""
+    import secrets
+
+    if settings.api_token and request.url.path != "/health":
+        auth = request.headers.get("authorization", "")
+        supplied = auth.removeprefix("Bearer ").strip()
+        if not (supplied and secrets.compare_digest(supplied, settings.api_token)):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "missing or invalid bearer token"},
+                                status_code=401)
+    return await call_next(request)
 
 
 class TurnIn(BaseModel):

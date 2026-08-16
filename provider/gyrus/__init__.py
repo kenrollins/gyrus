@@ -197,10 +197,17 @@ class GyrusMemoryProvider(MemoryProvider):
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None,
                  timeout: float = _TIMEOUT_S) -> Optional[Dict[str, Any]]:
+        headers = {"Content-Type": "application/json"}
+        # M7 auth (Fable F3): the service requires a bearer once
+        # GYRUS_API_TOKEN is set on both sides. Absent env = the historic
+        # open posture, so the provider stays deployable against either.
+        token = os.environ.get("GYRUS_API_TOKEN", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(
             self._base_url + path,
             data=json.dumps(body).encode() if body is not None else None,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method=method,
         )
         try:

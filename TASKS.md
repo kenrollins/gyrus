@@ -225,11 +225,25 @@ keep this honest — it's the fast read on where the build actually is.
 - [ ] Fold the 27 "unsure" band pairs — or leave them; unsure-means-keep is
       the designed behavior. Revisit alongside the discriminator wiring.
 
-## M7 — MCP face
-- [ ] openbrain MCP adapter spec against the gyrus store; read/write split;
-      request_id logging; add/search/recent/open_loops + insights.
-- [ ] **Auth (Fable F3):** store is unauthenticated on DMZ today — scoped token
-      before the MCP face leaves the LAN.
+## M7 — MCP face ✅ SHIPPED 2026-08-16 (journal-027)
+- [x] MCP face live at `/mcp` on the service (`src/gyrus/mcp_face.py`),
+      per the openbrain adapter spec fetched from kaiju: search_memory /
+      recent_memory / open_loops / insights / add_memory; read/write split
+      (the one write goes through extraction.persist — embedded, deduped,
+      backpressured, provenance assistant_suggested); request_id logging;
+      server-side limit caps. MCP searches log retrievals and insights
+      browses bump browse_count — cross-agent demand feeds the same
+      ADR-0008 signal Pip feeds. SDK note: FastMCP is now MCPServer; the
+      SDK's DNS-rebinding Host allow-list broke server-to-server calls and
+      is deliberately off (the bearer is the boundary — comment in code).
+- [x] **Auth (Fable F3) closed:** bearer token on everything except /health
+      (constant-time compare, middleware). Deployed zero-gap: VM provider +
+      env updated FIRST (old service ignored the header), hermes restarted,
+      THEN enforcement switched on — no capture window lost. Verified: 401
+      bare, 200 with token, zero provider 401s after cutover.
+- [ ] Public exposure (Caddy route + Authentik, per LAB.md) — only if/when
+      Ken wants the face reachable off-LAN; the token is necessary but not
+      sufficient for that step.
 
 ## M8 — ingest breadth + production
 - [ ] Zulip backfill from the Zulip server (pre-Hermes history, no 45-day prune).
