@@ -33,7 +33,11 @@ THALAMUS_URL = os.environ.get("THALAMUS_URL", "http://10.0.13.14:8000").rstrip("
 # "email" qualifies because the edge collector (Pip VM pusher) only forwards
 # senders on the curated source-profile allowlist — the sender-authority gate
 # runs at the edge, not here. Raw unfiltered mail must never get this label.
-TRUSTED_SOURCES = {"github", "notes", "conference", "email"}
+# "claude" (2026-08-16, Ken's call): Claude session memory files and CLAUDE.md
+# across the lab's repos — agent-authored, already-distilled insights about
+# Ken's own projects. Same trust class as his github repos; the edge pusher
+# decides which roots ship, thalamus normalizes, we extract.
+TRUSTED_SOURCES = {"github", "notes", "conference", "email", "claude"}
 
 
 def _source_key(it: dict) -> str:
@@ -45,6 +49,12 @@ def _source_key(it: dict) -> str:
         return f"email:{(it.get('author') or 'unknown').lower()}"   # the newsletter
     if src == "github":
         return f"github:{ref.split(':', 1)[0]}"                     # the repo
+    if src == "claude":
+        # ref convention: <host>:<project>:<file> — independence lives at the
+        # project (one project's memory restating itself is not corroboration;
+        # two PROJECTS' Claudes recording the same lesson is).
+        parts = ref.split(":")
+        return f"claude:{parts[1] if len(parts) > 1 else ref}"
     return f"{src}:{ref}"                                           # the document
 
 
