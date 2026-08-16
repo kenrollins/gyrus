@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     backfill_grace_hours: int = 24
     dedupe_threshold: float = 0.93     # cosine at/above this = corroboration
 
+    # --- consolidation (M2) ---
+    # The dream sweeper runs a committed consolidation whenever the store's
+    # max(consolidated_at) is older than this. 0 disables (manual only).
+    # Restart-proof: cadence is read from the store, not process uptime.
+    consolidate_interval_hours: int = 24
+
     # --- outcomes (M3) ---
     # The LLM tip_followed leg (outcomes.py): confirms/refutes the embedding
     # leg's "followed" verdicts. lab/flash is enough — one yes/no about one

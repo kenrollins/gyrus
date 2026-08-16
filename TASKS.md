@@ -137,10 +137,22 @@ keep this honest — it's the fast read on where the build actually is.
 - [x] **Near-duplicate merge** (F5): consolidation merges near-dups + folds
       corroboration counts (don't trust the write path; root cause was F2).
 - [ ] Neo4j + Graphiti reflective tier wired.
-- [ ] Offline trigger (`on_session_end` / timer), out-of-band, idempotent
-      `consolidated_at` + markdown report.
-- [ ] Decay test: recurring-useless does NOT outrank rare-valuable; stale
-      never-retrieved knowledge fades.
+- [x] Offline trigger — closed 2026-08-16: `worker._dream_sweeper` runs a
+      committed consolidation when the store's `max(consolidated_at)` ages
+      past `consolidate_interval_hours` (24h default; restart-proof because
+      cadence reads from the store, not process uptime). Until then every
+      dream pass had been a human remembering — the audit's zero-shaped
+      failure in scheduling form.
+- [x] Decay test — demonstrated on real data: stale never-retrieved knowledge
+      fades (6,038 event-time decays on 2026-08-16, May-2024 docs at full
+      fade — ADR-0011); recurring-useless does not outrank rare-valuable
+      (journal-018's utility ranking; source_key killed the repetition-as-
+      corroboration path that would have broken this).
+- [ ] **Wire the band discriminator into the dream pass** (journal-025): the
+      0.90–0.93 adjudicate-then-fold currently lives in
+      tools/store-audit/band_discriminator.py as a manual tool; the dream
+      pass should run it periodically (monthly-ish — the band regrows from
+      union-pass rewordings). Reuse the double-agreement gate unchanged.
 
 ## M3 — procedural tier (PROVES THE CLAIM) — MECHANISM SHIPPED 2026-08-13; curve needs usage
 - [x] Outcome-signal writer (`outcomes.py`): parses tool pass/fail + embedding tip_followed → `outcome_value`. Proven on real turn 1835.
@@ -166,26 +178,52 @@ keep this honest — it's the fast read on where the build actually is.
 - [x] Outcome scoring self-runs (worker sweeper); the loop is live.
 
 ## M4 — the knowledge tier (ADR-0006) ✅ SHIPPED 2026-08-13 (gyrus-side)
-- [ ] Schema: `knowledge` tier + source_type/source_ref/topic; source-authority
-      × recency × retrieval-demand evaluator.
-- [ ] Retrieval integration: down-weighted vs personal tiers; excluded from the
-      M3 metric.
-- [ ] Extraction gate: "teaching me about Ken" (personal) vs "record the world"
-      (knowledge).
-- [ ] **`/v1/insights`**: browse gleaned insights by source/topic/recency.
+- [x] Schema: `knowledge` tier + source_type/source_ref/topic (migration 0004);
+      recency × retrieval-demand evaluator (recency now EVENT-time, ADR-0011).
+- [x] Retrieval integration: 0.6 down-weight vs personal tiers; excluded from
+      the M3 metric (outcomes score procedural recalls only).
+- [x] Extraction gate: personal-vs-knowledge in the prompt; boundary sharpened
+      in v1.3 (wrong-tier ~20%→~0-3%, journal-024).
+- [x] **`/v1/insights`** live; browses log browse_count as demand (ADR-0008).
 
-## M5 — source ingestion adapters (ADR-0006)
-- [ ] Email: reconnect `pip_signal_memory_bridge` output → knowledge tier
-      (closes the dropped-insight leak from the OpenBrain retirement).
-- [ ] Conference/notes: retag the existing harvest flow → knowledge tier.
-- [ ] Podcast: fetch → transcribe (Whisper/kaiju) → extract.
+## M5 — source ingestion (superseded by ADR-0007/0009: thalamus feeds gyrus)
+- [x] github lane — shipped 2026-08-14 (thalamus adapter → trusted ingest);
+      re-scoped 2026-08-16 upstream (archive/vendored exclusions + purge).
+      Daily schedule live; edited docs re-cross with commit-date event time.
+- [x] Email lane — shipped 2026-08-15 (ADR-0009 edge-collector push; 311
+      newsletters → knowledge; published_at verified faithful).
+- [x] arXiv lane — live, front-gated (ADR-0008 relevance floor). The 0.55
+      floor itself is still unvalidated — see backlog below.
+- [ ] Podcast: thalamus fetch → transcribe (Whisper/kaiju) → extract.
+      Recon `pip_episode_capture.py` first (build-status note).
 - [ ] Web: later.
 
 ## M6 — factual + preference + graph
 - [ ] Factual: contradiction detection + corroboration scoring.
 - [ ] Preference: proxy signals (corrected/reused/uncontradicted).
 - [ ] Entity resolution (Graphiti + flat `memory_entities`/`memory_links`).
-- [ ] `open_loops` (unresolved-thread memory).
+- [ ] `open_loops` task-closure lifecycle: baseline-2 found completed-task
+      pairs living side by side ("remove the stale entry" / "entry removed,
+      warnings gone") with no mechanism to close the loop. Contradiction
+      detection is the natural engine; `expires` (ADR-0011) already bounds
+      the deadline-carrying ones.
+
+## Audit backlog (small, measured, from journals 020–026)
+- [x] arXiv "Ken is tracking X" fabricated-interest sweep — 16 retired
+      2026-08-16 (firehose arrival is not intent; provenance-inflation class).
+- [ ] **Mid-Sep re-grade** against baseline-2 (seed 0.43,
+      `tools/store-audit/GRADING-BASELINE-2.md`) — the honest progress
+      metric; keep-rate delta per stratum, never memory counts.
+- [ ] Firehose relevance floor (0.55) — never validated (audit brief
+      "never tested, and load-bearing" list; the last survivor from it).
+- [ ] RRF keyword-dominance watch: a demoted memory (conf 0.215) still tops
+      near-verbatim queries (journal-026 caveat). No fix yet, by choice —
+      eviction closes it slowly; revisit only if organic usage shows recall
+      serving known-bad advice.
+- [ ] Periodic re-tier spot-check (v1.3 cut live misfiling to ~0-3%; a
+      quarterly 20-row sample of new factual rows keeps it honest).
+- [ ] Fold the 27 "unsure" band pairs — or leave them; unsure-means-keep is
+      the designed behavior. Revisit alongside the discriminator wiring.
 
 ## M7 — MCP face
 - [ ] openbrain MCP adapter spec against the gyrus store; read/write split;

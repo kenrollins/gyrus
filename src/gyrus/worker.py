@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 from . import db, extraction
 from .config import settings
@@ -183,6 +184,44 @@ async def _outcome_sweeper(interval_s: int = 180) -> None:
             logger.exception("outcome sweeper pass failed")
 
 
+async def _dream_sweeper(check_interval_s: int = 3600) -> None:
+    """The offline consolidation trigger (M2's open box, closed 2026-08-16).
+
+    Until this existed, every dream pass was a human remembering to run one —
+    credit assignment, expiry retirement, and event-time decay all silently
+    paused whenever nobody did. The audit's lens applies: an unscheduled
+    offline job is a zero that records itself as 'nothing needed doing'.
+
+    Restart-proof by design: instead of trusting process uptime (a container
+    rebuild would reset an interval timer forever), each check reads the
+    store's own max(consolidated_at) and runs when it is older than the
+    configured cadence. Consolidation is idempotent (consolidated_at,
+    superseded_by), so a race with a manual run costs nothing.
+    """
+    from . import consolidate
+    while True:
+        await asyncio.sleep(check_interval_s)
+        if not settings.consolidate_interval_hours:
+            continue
+        try:
+            pool = await db.get_pool()
+            last = await pool.fetchval("SELECT max(consolidated_at) FROM memories")
+            due = last is None or (
+                datetime.now(timezone.utc) - last
+                > timedelta(hours=settings.consolidate_interval_hours))
+            if not due:
+                continue
+            rep = await consolidate.consolidate(commit=True,
+                                                report_dir="/data/dream-reports")
+            logger.info("dream sweeper: scored=%d raise=%d lower=%d evict=%d"
+                        " merge=%d expired=%d outcome_scored=%d",
+                        rep.scored, rep.confidence_raised, rep.confidence_lowered,
+                        len(rep.evict_candidates), len(rep.merges), rep.expired,
+                        rep.outcome_scored)
+        except Exception:                                   # noqa: BLE001
+            logger.exception("dream sweeper pass failed")
+
+
 async def _thalamus_sweeper(interval_s: int = 21600) -> None:
     """Pull new source-items from thalamus into the knowledge tier, front-gated."""
     from . import ingest
@@ -205,6 +244,7 @@ async def start(concurrency: int) -> None:
     _tasks.append(asyncio.create_task(_embed_sweeper()))
     _tasks.append(asyncio.create_task(_outcome_sweeper()))
     _tasks.append(asyncio.create_task(_thalamus_sweeper()))
+    _tasks.append(asyncio.create_task(_dream_sweeper()))
     logger.info("extraction worker started (%d consumers)", concurrency)
 
 
