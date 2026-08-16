@@ -73,11 +73,14 @@ keep this honest — it's the fast read on where the build actually is.
       knowledge, `source_type='conversation'`; conservative on ambiguous;
       12/16 agreement with the hand-graded sample, all disagreements
       in the stay-put direction). journal-022.
-- [ ] **Re-verify the prompt-lineage numbers** (ADR-0010). The v0/v0.1/v1
-      keep-rate and noise figures quoted in `extraction.py` came from
-      `run_matrix.py`, whose regex scored real output as zero facts — the same
-      instrument that produced a fake verdict on the fast lane. Re-run the
-      golden set under `bench_lanes.py` and correct or confirm them.
+- [x] **Prompt-lineage numbers re-verified 2026-08-16** under `bench_lanes.py`
+      (v1.2 on lab/extract, 6 goldens): non-cron keep-rate ~93%, 0 structural
+      noise — the old claim roughly survives; facts/window ~6.8. NEW finding:
+      ~20% of non-cron facts misfile world knowledge as `factual` — the
+      wrong-tier defect is live prompt behavior, so the re-tier sweep must be
+      periodic until the prompt learns the knowledge boundary (fold into the
+      cron-suppression prompt pass below — one golden-set validation covers
+      both). Historical v0/v0.1 figures stay labeled narrative-only.
 - [x] **The fallback lane times out** (ADR-0010 addendum) — fixed 2026-08-15:
       `chat_json` now gives the fallback attempt its own ceiling
       (`extract_fallback_timeout`, 900s) instead of the 300s default that
@@ -102,8 +105,18 @@ keep this honest — it's the fast read on where the build actually is.
       (b) ✅ one-time 0.93 merge sweep ran via the dream pass — 256 merges, more
       than the 187 measured pairs because the same-day re-tier converted
       cross-tier duplicates into foldable same-tier pairs; resident backstop
-      stays 0.97. (c) the 0.90–0.93 band (~1,045 pairs — union-pass rewordings
-      live here) is the real threshold question, STILL OPEN.
+      stays 0.97. (c) ANSWERED 2026-08-16 (journal-023): the band measured
+      952 pairs post-cleanup; a graded 30-pair sample split ~80% same-claim
+      rewordings / ~20% genuinely DISTINCT facts differing by one critical
+      token (ADR-0024 vs -0018, `pip install .` vs `.[test]`,
+      foam-note-link vs foam-placeholder-link). So the write threshold STAYS
+      at 0.93 — lowering it would destroy ~190 distinct technical facts, the
+      exact pattern-separation job in this project's name. NEW WORK instead:
+      a band discriminator in the dream pass — for 0.90–0.93 nearest pairs,
+      adjudicate same-claim vs distinct before folding (deterministic first:
+      differing digit/identifier tokens → distinct; lab/flash for the
+      remainder). Residual ≥0.93 chains converge with a second sweep pass
+      (ran one: 23 folded; store 10,943).
 - [ ] **Cron suppression does not work** (ADR-0010). The prompt says automated
       output yields nothing; on `cron-monday-brief` the 70B returns 6 facts and
       the fast lane 13, attributing a scheduled job's own brief to `ken_said`.

@@ -27,11 +27,23 @@ falsifiable. Not a candidate. The older claim here ("the flash tier extracted
 almost nothing") was a misconfiguration — a 403 model id — recorded as a
 quality verdict; see ADR-0010.
 
-CAVEAT on the numbers above: the v0/v0.1/v1 lineage figures come from
+CAVEAT on the historical numbers above: the v0/v0.1/v1 figures come from
 tools/extraction-eval/run_matrix.py, whose `\\[.*\\]` regex silently scored
-real model output as zero facts. They are indicative, not verified. Re-run
-under tools/extraction-eval/bench_lanes.py (production prompt + salvage
-parser) before quoting them anywhere that matters.
+real model output as zero facts. Treat them as lineage narrative, not data.
+
+v1.2 VERIFIED 2026-08-16 under bench_lanes.py (lab/extract, 6 goldens,
+max_tokens=8000): 6/6 windows usable, 37 facts, 192.8s — matching ADR-0010's
+engine-level run through the new shape name. Graded fact-by-fact:
+  - non-cron windows (27 facts): 0 structural noise, ~93% keep-rate — the
+    old "96%, 0% noise" claim roughly survives on the honest instrument;
+  - BUT ~20% of non-cron facts file relayed world knowledge as 'factual'
+    (e.g. a research center's existence) — the store-audit wrong-tier defect
+    is live prompt behavior, not just pre-ADR-0006 backlog. Until the prompt
+    learns the knowledge tier boundary, the re-tier sweep
+    (tools/store-audit/retier_classify.py) needs to be periodic;
+  - cron windows still extract (6 and 4 facts where the right answer is 0) —
+    the suppression defect in TASKS.md, unchanged, worker filter still the
+    only guard.
 """
 
 from __future__ import annotations
