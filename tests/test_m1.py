@@ -285,3 +285,28 @@ def test_contradiction_survivor_is_newer_event():
              "corroboration_count": 1, "recall_count": 0}
     winner, _ = reconcile.pick_survivor(tie_b, tie_a)
     assert winner["id"] == 3                     # tie -> higher signal
+
+
+# --- ADR-0013: reflective tier projection -----------------------------------
+
+def test_graph_row_shaping_preserves_null_event_time():
+    """An absent event_at must stay absent in the graph — 0 would mean
+    'happened at the epoch' and poison every temporal traversal."""
+    import sys
+    import types
+    from datetime import datetime, timezone
+
+    sys.modules.setdefault("asyncpg", types.ModuleType("asyncpg"))
+    from gyrus import graph
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        {"id": 1, "tier": "factual", "confidence": 0.7, "event_at": None,
+         "created_at": now, "retired_at": None, "superseded_by_id": None},
+        {"id": 2, "tier": "knowledge", "confidence": 0.5, "event_at": now,
+         "created_at": now, "retired_at": now, "superseded_by_id": 1},
+    ]
+    out = graph.memory_rows_to_params(rows)
+    assert out[0]["event_at"] is None and out[0]["retired_at"] is None
+    assert isinstance(out[1]["event_at"], float)
+    assert out[1]["superseded_by"] == 1

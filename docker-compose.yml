@@ -26,6 +26,8 @@ services:
       # Bind the DIRECTORY, never a file — single-file binds pin the inode and
       # edits silently never land (platform gotcha).
       - /data/docker/gyrus/dream-reports:/data/dream-reports
+      # ADR-0013: Neo4j credential, secret-file convention (600, never env).
+      - /data/docker/gyrus/.neo4j_password:/data/.neo4j_password:ro
     networks:
       gyrus_net: {}
       dmz13:

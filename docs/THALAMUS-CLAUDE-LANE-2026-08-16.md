@@ -4,9 +4,15 @@
 across the lab leave distilled insights in two file shapes — per-project
 session memory (`~/.claude/projects/<slug>/memory/*.md`, frontmatter +
 markdown, one fact-cluster per file) and repo `CLAUDE.md` contracts. Ken
-wants them probed as a knowledge source. Measured on shadesmar alone:
-13 project memory dirs, ~100 files, ~268KB, plus 11 CLAUDE.md files —
-pre-distilled, attributed, dated by mtime. xr7620 and other hosts have more.
+wants them probed as a knowledge source. Measured: 13 project memory dirs,
+~100 files, ~268KB, plus 11 CLAUDE.md files — pre-distilled, attributed,
+dated by mtime.
+
+> **Correction (2026-08-16, credit: the thalamus session):** that corpus
+> lives on **xr7620**, not shadesmar — the authoring session measured its
+> own host under the lab's legacy hostname (shadesmar is the Pip VM, which
+> kept the old name after the migration and has no ~/.claude/projects at
+> all). Pushers run on both hosts regardless.
 
 ## Why this source is unusually good
 

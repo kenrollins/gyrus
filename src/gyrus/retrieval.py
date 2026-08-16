@@ -108,20 +108,33 @@ async def _graph(conn, query: str, limit: int) -> list[dict[str, Any]]:
     # Inverse document frequency: "ken" and "hermes" tag ~every memory in a
     # personal agent's store, so their match says nothing. A rare entity
     # ("NQISRC", "SalesChat") is the strongest relevance signal we have.
+    # ADR-0013: one-hop entity expansion from the nightly graph projection.
+    # entity_relations is a small Postgres table (migration 0008) written
+    # back by graph.enrich() — the hot path reads a co-occurrence result,
+    # never the graph itself. Expanded matches carry HALF weight: a related
+    # entity is a lead, not a mention. Empty table = no expansion, cleanly.
     rows = await conn.fetch(
         "WITH df AS (SELECT normalized, count(DISTINCT memory_id) AS n"
         "            FROM memory_entities GROUP BY 1),"
         "     total AS (SELECT GREATEST(count(*), 1)::float AS n FROM memories"
-        "               WHERE retired_at IS NULL)"
+        "               WHERE retired_at IS NULL),"
+        "     hits AS (SELECT normalized, 1.0 AS wt FROM df"
+        "              WHERE length(normalized) >= 3"
+        "                AND position(' ' || normalized || ' ' in $1) > 0),"
+        "     expanded AS ("
+        "       SELECT er.related AS normalized, 0.5 AS wt"
+        "       FROM hits JOIN entity_relations er ON er.entity = hits.normalized"
+        "       WHERE er.related NOT IN (SELECT normalized FROM hits)),"
+        "     matched AS (SELECT * FROM hits UNION ALL SELECT * FROM expanded)"
         " SELECT m.id, m.tier, m.fact, m.provenance,"
-        "        sum(ln((SELECT n FROM total) / df.n))::float AS s"
-        " FROM memory_entities e"
+        "        sum(mt.wt * ln((SELECT n FROM total) / df.n))::float AS s"
+        " FROM matched mt"
+        " JOIN memory_entities e ON e.normalized = mt.normalized"
         " JOIN memories m ON m.id = e.memory_id"
         " JOIN df ON df.normalized = e.normalized"
-        " WHERE m.retired_at IS NULL AND length(e.normalized) >= 3"
-        "   AND position(' ' || e.normalized || ' ' in $1) > 0"
+        " WHERE m.retired_at IS NULL"
         " GROUP BY m.id, m.tier, m.fact, m.provenance"
-        " HAVING sum(ln((SELECT n FROM total) / df.n)) > 0"
+        " HAVING sum(mt.wt * ln((SELECT n FROM total) / df.n)) > 0"
         " ORDER BY s DESC, m.id DESC LIMIT $2", q, limit)
     return [dict(r) for r in rows]
 

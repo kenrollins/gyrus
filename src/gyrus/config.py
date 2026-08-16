@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     # Restart-proof: cadence is read from the store, not process uptime.
     consolidate_interval_hours: int = 24
 
+    # --- reflective tier (ADR-0013) ---
+    # Empty uri/password-file = tier disabled; recall never depends on it.
+    neo4j_uri: str = ""
+    neo4j_user: str = "neo4j"
+    neo4j_password_file: str = ""
+
     # --- reconciler (M6 + the band discriminator, journal-028) ---
     # Per-run caps: the nightly dream pass chews backlogs incrementally.
     reconcile_enabled: bool = True

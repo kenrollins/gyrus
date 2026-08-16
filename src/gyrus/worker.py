@@ -218,6 +218,18 @@ async def _dream_sweeper(check_interval_s: int = 3600) -> None:
                         rep.scored, rep.confidence_raised, rep.confidence_lowered,
                         len(rep.evict_candidates), len(rep.merges), rep.expired,
                         rep.outcome_scored)
+            # ADR-0013: project the store into the reflective graph and pull
+            # the co-occurrence enrichment back. Failure = stale projection,
+            # logged loudly, recall untouched.
+            from . import graph
+            gs = await graph.sync()
+            ge = await graph.enrich()
+            logger.info("graph projection: synced=%d mentions=%d supersedes=%d"
+                        " related=%d%s%s",
+                        gs.memories_synced, gs.mentions_synced, gs.supersedes_synced,
+                        ge.entities_related,
+                        f" SYNC-ERROR: {gs.error}" if gs.error else "",
+                        f" ENRICH-ERROR: {ge.error}" if ge.error else "")
         except Exception:                                   # noqa: BLE001
             logger.exception("dream sweeper pass failed")
 

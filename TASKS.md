@@ -136,7 +136,17 @@ keep this honest — it's the fast read on where the build actually is.
       corroboration + **knowledge recency/retrieval-demand decay**.
 - [x] **Near-duplicate merge** (F5): consolidation merges near-dups + folds
       corroboration counts (don't trust the write path; root cause was F2).
-- [ ] Neo4j + Graphiti reflective tier wired.
+- [x] Reflective tier SHIPPED 2026-08-16 (ADR-0013, journal-030) — as a
+      PROJECTION, not a second store: nightly graph sync (GMemory/GEntity,
+      MENTIONS, SUPERSEDED_BY provenance edges from reconciler verdicts,
+      bi-temporal with retired history) + in-graph co-occurrence enrichment
+      written back to Postgres `entity_relations` for the hot retrieval leg
+      (one-hop expansion at half weight — recall never pays a bolt trip).
+      First projection: 13,249 nodes, 28,309 mentions, 908 supersedes
+      chains (3 hops deep), 4,708 relation rows ("nersc"→qcan/hamlib/
+      klymko — recalls now reach memories that never name the query).
+      Graphiti deliberately NOT adopted: gemma-forge declared it and never
+      imported it; direct driver + our own projection (evidence in the ADR).
 - [x] Offline trigger — closed 2026-08-16: `worker._dream_sweeper` runs a
       committed consolidation when the store's `max(consolidated_at)` ages
       past `consolidate_interval_hours` (24h default; restart-proof because
