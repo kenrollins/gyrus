@@ -165,3 +165,68 @@ because the right threshold is itself an open question.
   fixing the prompt requires its own golden-set pass.
 - Revisit if a lane appears with instruction-following in the 70B's class. The
   bench is now cheap and honest, so revisiting costs ~5 minutes of GPU time.
+
+## Addendum 2 (2026-08-16): the GB10 lane was never measured either
+
+The first addendum scored `vllm/nemotron-120b` at 2/6 windows and 1787.4s and
+called the fallback broken. That run was **also** not a measurement, for the
+same reason as everything else this ADR corrects: an infrastructure ceiling
+recorded as a model verdict.
+
+`chat_json` takes `timeout: float = 300.0`, and lifts it to
+`settings.extract_fallback_timeout` (900s) **only for the configured fallback
+model**. `bench_lanes.py` sets `settings.extract_fallback_model = ""` so each
+lane answers for itself — which means the lane *under test* always got 300s no
+matter what the fallback ceiling said. The 301.6s entries were the harness's
+clock, not the model's. `extract()` and `chat_json` now take an explicit
+`timeout`, and `bench_lanes.py` a `--timeout` flag.
+
+Re-measured at 900s, prompt v1.3, `max_tokens=8000`, fallback disabled:
+
+| lane | windows usable | facts | total s |
+|---|---|---|---|
+| `kaiju/nemotron:70b` | 6/6 | 30 | 182.5 |
+| `vllm/nemotron-120b` (thinking ON) | 3/6 | 6 | 3605.9 |
+| `vllm/nemotron-120b` (thinking OFF) | **6/6** | 13 | **98.5** |
+| `kaiju/gpt-oss:120b` | 6/6 | 53 | 336.8 |
+
+**Even 900s was not enough, and that exposed the real defect.** Three windows
+blew through the raised ceiling. Nemotron-3 Super is a *reasoning* model, and
+no GB10 lane ever turned thinking off: the gateway pins
+`chat_template_kwargs: {"enable_thinking": false}` on every flash lane but on
+none of the GB10 lanes. So the 120B deliberated for hundreds of tokens before
+emitting a JSON array, against a task whose entire output is a JSON array.
+
+Turning thinking off is worth **37x** — 3605.9s to 98.5s, 3/6 to 6/6 — and the
+result is *faster than the incumbent*, 98.5s against the 70B's 182.5s. The
+"the 120B is too slow for extraction" intuition was never about the 120B. It
+was about an unset flag.
+
+### The decision still stands, on a reason that is finally measured
+
+**Recall.** The strict lane returns 13 facts to the 70B's 30, and the shortfall
+is not uniform: on the document-heavy `conference-cleanup` it gets 5 of the
+70B's 7 and writes them *more* precisely (`arXiv:2408.13244` where the 70B has
+"ArXiv paper 2408.13244"). On the conversational windows it collapses —
+`nqisrc-panel` 1 fact against 8, `recent-other` 1 against 7 — and what it drops
+is the person-specific layer: preferences, open loops, procedural facts. World
+knowledge survives; Ken does not. That is the half gyrus exists to capture, so
+extraction stays on `kaiju/nemotron:70b`.
+
+This is a *prompt-and-model* verdict now, not a clock artifact. It is also
+falsifiable in a way the previous two versions were not: if the strict lane's
+recall on conversational windows can be raised, it is the fastest candidate on
+the board by a factor of two.
+
+### Consequences
+
+- `lab/reason-strict` was added to the gateway (2026-08-16): the same GB10
+  engine as `lab/reason` with thinking pinned off. It exists because this
+  measurement showed the gap; reach for it for structured output on the GB10.
+- **Do not swap extraction onto `lab/reason-strict` on the strength of its
+  speed.** The recall gap above is the blocker, and it is a fact-grading
+  question, not a latency one.
+- The `--no-think` flag on `bench_lanes.py` makes this re-testable in minutes
+  when the prompt changes.
+- Open: whether v1.3's prompt can close the conversational-recall gap on the
+  strict lane. Until someone grades that, the 70B stays.
