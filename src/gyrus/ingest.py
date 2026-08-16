@@ -82,6 +82,14 @@ async def _extract_item(conn, it: dict) -> int:
         f.tier = "knowledge"                 # source-ingested is knowledge by definition
         f.source_type = src
         f.event_at = event_at
+        # The claude lane is ALWAYS secondhand: a session memory recording
+        # "Ken approved X" is a witness report, not Ken speaking — ken_said
+        # carries an authority bonus that secondhand must not inherit
+        # (ADR-0002's never-dress-up-weaker-signal guardrail; measured on the
+        # first drain: 83% of claude facts arrived ken_said). Weaker
+        # provenances (observed/assistant_suggested) stay as-is.
+        if src == "claude" and f.provenance == "ken_said":
+            f.provenance = "relayed"
         if not f.topic:
             f.topic = it.get("topic") or []
     async with conn.transaction():

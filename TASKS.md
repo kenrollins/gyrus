@@ -46,7 +46,11 @@ keep this honest — it's the fast read on where the build actually is.
 - [x] One-time backfill: state.db, cron-filtered (47 non-cron sessions /
       2,787 msgs — the other 111 sessions were cron), windowed, idempotent.
       ~1,200 memories on the first pass; gap-fill run after.
-- [ ] MEMORY.md / USER.md as seed facts (small, hand-checkable — do last).
+- [x] MEMORY.md / USER.md as seed facts — CLOSED OBSOLETE 2026-08-16: the
+      files no longer exist on the Pip VM (verified; the claude lane now
+      covers the ~/.claude memory files that replaced this genre). SOUL.md
+      exists but is Pip's persona document, not profile facts — ingesting
+      it is Ken's call, not a default.
 - [x] Postgres episodic + semantic schema (0002: tier, provenance,
       vector(1024), entities, memory_retrievals seam for M3).
 - [x] Hybrid ranker — GREENFIELD, not a port (gemma-forge's isn't hybrid):
@@ -214,9 +218,14 @@ keep this honest — it's the fast read on where the build actually is.
       docs/THALAMUS-CLAUDE-LANE-2026-08-16.md, green-light messaged to the
       thalamus session 2026-08-16. **If that session went stale, paste the
       doc path into any new thalamus session — it is self-contained.**
-      Remaining gyrus checkbox: when items flow, verify end to end (facts
-      land as knowledge/claude with mtime event_at, cross-project
-      corroboration fires, provenance is NOT ken_said).
+      ✅ VERIFIED END TO END 2026-08-16 (journal-031): 884 facts, 100%
+      knowledge tier, 100% event-dated (840 genuinely backdated — operator
+      lessons from February score as February), 10 projects, corroboration
+      flat 1.00 (echo guard held). Provenance finding: 83% arrived ken_said
+      from sessions quoting Ken — clamped to relayed at ingest (secondhand
+      never inherits the authority bonus) + 731 backfixed. The lane's first
+      insight corrected its own design doc (hostname); its drain survived a
+      rebuild kill and a gateway outage on held cursors.
 - [ ] Podcast: thalamus fetch → transcribe (Whisper/kaiju) → extract.
       Recon `pip_episode_capture.py` first (build-status note).
 - [ ] Web: later.
