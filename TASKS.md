@@ -195,6 +195,18 @@ keep this honest — it's the fast read on where the build actually is.
       newsletters → knowledge; published_at verified faithful).
 - [x] arXiv lane — live, front-gated (ADR-0008 relevance floor). The 0.55
       floor itself is still unvalidated — see backlog below.
+- [ ] **The claude lane** (Ken 2026-08-16: "could be the biggest win of this
+      project") — Claude-instance insights (~/.claude/projects/*/memory/*.md
+      + /data/code/*/CLAUDE.md, all hosts) as a thalamus source.
+      GYRUS SIDE ✅ DEPLOYED (commit 61345ff): "claude" trusted,
+      source_key=claude:<project>, ingest sweeper auto-pulls — zero manual
+      steps once items flow. THALAMUS SIDE ⏳ handed off: design in
+      docs/THALAMUS-CLAUDE-LANE-2026-08-16.md, green-light messaged to the
+      thalamus session 2026-08-16. **If that session went stale, paste the
+      doc path into any new thalamus session — it is self-contained.**
+      Remaining gyrus checkbox: when items flow, verify end to end (facts
+      land as knowledge/claude with mtime event_at, cross-project
+      corroboration fires, provenance is NOT ken_said).
 - [ ] Podcast: thalamus fetch → transcribe (Whisper/kaiju) → extract.
       Recon `pip_episode_capture.py` first (build-status note).
 - [ ] Web: later.
