@@ -69,6 +69,7 @@ class Report:
     confidence_raised: int = 0
     confidence_lowered: int = 0
     expired: int = 0                   # ADR-0011: valid_until passed, retired
+    reconcile: object = None           # M6 ReconcileReport (folds/contradictions/loops)
     evict_candidates: list = field(default_factory=list)
     merges: list = field(default_factory=list)
     by_tier: dict = field(default_factory=dict)
@@ -156,6 +157,12 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
 
         # F5 near-duplicate merge (only meaningful with vectors)
         rep.merges = await _find_merges(conn)
+
+        # M6 reconciler: same-claim folds in the 0.90-0.97 band, contradiction
+        # supersession, open_loop resolution. Runs its own commits (capped);
+        # in dry-run mode it only reports. See reconcile.py.
+        from . import reconcile
+        rep.reconcile = await reconcile.run(conn, commit=commit)
 
         if commit:
             async with conn.transaction():

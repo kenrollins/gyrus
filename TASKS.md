@@ -148,11 +148,12 @@ keep this honest — it's the fast read on where the build actually is.
       fade — ADR-0011); recurring-useless does not outrank rare-valuable
       (journal-018's utility ranking; source_key killed the repetition-as-
       corroboration path that would have broken this).
-- [ ] **Wire the band discriminator into the dream pass** (journal-025): the
-      0.90–0.93 adjudicate-then-fold currently lives in
-      tools/store-audit/band_discriminator.py as a manual tool; the dream
-      pass should run it periodically (monthly-ish — the band regrows from
-      union-pass rewordings). Reuse the double-agreement gate unchanged.
+- [x] **Band discriminator wired into the dream pass** — subsumed by the M6
+      reconciler (journal-028): 0.90–0.97 pairs adjudicated nightly with the
+      double-agreement gate, capped at `reconcile_max_pairs`/run. One
+      semantics change from the standalone tool: token-conflict pairs go to
+      the judge (they may be contradictions), only one-sided enumerations
+      stay deterministically distinct. First pass folded 44.
 
 ## M3 — procedural tier (PROVES THE CLAIM) — MECHANISM SHIPPED 2026-08-13; curve needs usage
 - [x] Outcome-signal writer (`outcomes.py`): parses tool pass/fail + embedding tip_followed → `outcome_value`. Proven on real turn 1835.
@@ -198,15 +199,26 @@ keep this honest — it's the fast read on where the build actually is.
       Recon `pip_episode_capture.py` first (build-status note).
 - [ ] Web: later.
 
-## M6 — factual + preference + graph
-- [ ] Factual: contradiction detection + corroboration scoring.
-- [ ] Preference: proxy signals (corrected/reused/uncontradicted).
-- [ ] Entity resolution (Graphiti + flat `memory_entities`/`memory_links`).
-- [ ] `open_loops` task-closure lifecycle: baseline-2 found completed-task
-      pairs living side by side ("remove the stale entry" / "entry removed,
-      warnings gone") with no mechanism to close the loop. Contradiction
-      detection is the natural engine; `expires` (ADR-0011) already bounds
-      the deadline-carrying ones.
+## M6 — factual + preference + graph (reconciler shipped 2026-08-16, journal-028)
+- [x] Factual contradiction detection — `reconcile.py`, in the nightly dream
+      pass: 0.90–0.97 nearest pairs judged same/distinct/contradicts (double
+      agreement, order-swapped); contradictions supersede newer-event-wins
+      (ADR-0011 gives honest event time; bi-temporal so recoverable). First
+      committed pass: 3 contradictions (incl. "IS 5527 commits behind"
+      superseded by "WAS ... before the rebase" — tense as truth).
+      Corroboration scoring was already live (write path + _utility).
+- [x] Preference proxies — "reused" = recall demand (live in _utility);
+      "corrected/uncontradicted" = the same contradiction engine applied to
+      the preference tier (newer preference supersedes the one it corrects).
+- [ ] Entity resolution (Graphiti + flat `memory_entities`/`memory_links`) —
+      moves with the Neo4j reflective tier (M2 leftover), one build.
+- [x] `open_loops` task-closure lifecycle — `reconcile.resolve_loops`:
+      loops >2 days old get their top-4 later memories judged for
+      resolution (conservative: doubt = stay open; evidence id must be one
+      of the candidates); resolved loops retire with superseded_by pointing
+      AT the resolving memory. First pass: 32 of 100 closed; the 466-loop
+      backlog drains at ≤100/night on the dream cadence. `expires`
+      (ADR-0011) already bounds deadline-carrying loops at write time.
 
 ## Audit backlog (small, measured, from journals 020–026)
 - [x] arXiv "Ken is tracking X" fabricated-interest sweep — 16 retired

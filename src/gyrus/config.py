@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     # Restart-proof: cadence is read from the store, not process uptime.
     consolidate_interval_hours: int = 24
 
+    # --- reconciler (M6 + the band discriminator, journal-028) ---
+    # Per-run caps: the nightly dream pass chews backlogs incrementally.
+    reconcile_enabled: bool = True
+    reconcile_max_pairs: int = 150
+    reconcile_max_loops: int = 100
+
     # --- outcomes (M3) ---
     # The LLM tip_followed leg (outcomes.py): confirms/refutes the embedding
     # leg's "followed" verdicts. lab/flash is enough — one yes/no about one

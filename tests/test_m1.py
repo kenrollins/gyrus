@@ -238,3 +238,50 @@ def test_follow_judge_parses_verdicts_and_tolerates_garbage(monkeypatch):
 
     monkeypatch.setattr(gateway, "chat_json", dead_chat)
     assert asyncio.run(outcomes.judge_followed("tip", "action")) is None
+
+
+# --- M6: reconciler routing and survivor rules ------------------------------
+
+def test_reconcile_routes_token_conflicts_to_the_judge():
+    """journal-025's band tool called a conflicting substitution 'distinct';
+    the reconciler must NOT — same slot with a different value is either a
+    distinct fact or a live contradiction, and only reading decides.
+    One-sided enumerations stay deterministically distinct (fold loses the list)."""
+    import sys
+    import types
+
+    sys.modules.setdefault("asyncpg", types.ModuleType("asyncpg"))
+    from gyrus import reconcile
+
+    assert reconcile.route("backup_keep set to 3", "backup_keep set to 5") == "judge"
+    assert reconcile.route(
+        "The command has settings: notePath, templatePath, onFileExists, textVar",
+        "To customize the command, add a key binding") == "distinct"
+    assert reconcile.route("the watchdog is paused", "the watchdog is running") == "judge"
+
+
+def test_contradiction_survivor_is_newer_event():
+    """The world changed and the newer memory saw it (ADR-0011 event time);
+    ties fall to the higher-signal member. Retirement is bi-temporal, so a
+    wrong call is recoverable — but the default must still be sane."""
+    import sys
+    import types
+    from datetime import datetime, timedelta, timezone
+
+    sys.modules.setdefault("asyncpg", types.ModuleType("asyncpg"))
+    from gyrus import reconcile
+
+    now = datetime.now(timezone.utc)
+    old = {"id": 1, "event_at": now - timedelta(days=90), "created_at": now,
+           "corroboration_count": 9, "recall_count": 5}
+    new = {"id": 2, "event_at": now, "created_at": now,
+           "corroboration_count": 1, "recall_count": 0}
+    winner, loser = reconcile.pick_survivor(old, new)
+    assert winner["id"] == 2                     # newer event beats older signal
+
+    tie_a = {"id": 3, "event_at": None, "created_at": now,
+             "corroboration_count": 4, "recall_count": 1}
+    tie_b = {"id": 4, "event_at": None, "created_at": now,
+             "corroboration_count": 1, "recall_count": 0}
+    winner, _ = reconcile.pick_survivor(tie_b, tie_a)
+    assert winner["id"] == 3                     # tie -> higher signal
