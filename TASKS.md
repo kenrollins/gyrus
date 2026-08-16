@@ -145,8 +145,24 @@ keep this honest — it's the fast read on where the build actually is.
 ## M3 — procedural tier (PROVES THE CLAIM) — MECHANISM SHIPPED 2026-08-13; curve needs usage
 - [x] Outcome-signal writer (`outcomes.py`): parses tool pass/fail + embedding tip_followed → `outcome_value`. Proven on real turn 1835.
 - [x] Credit assignment in the dream pass (GROUP BY memory_id, min-sample guard like gemma-forge's follow_sample_size). Confidence moved 0.97→0.26 on a real failing turn, then guard held it until enough evidence.
-- [ ] LLM tip_followed judge (temp 0) — embedding leg done; LLM leg later.
-- [ ] THE CURVE: tool-success-on-recall climbing over sessions — needs USAGE volume (organic, via M4/M5 making Pip worth using).
+- [x] LLM tip_followed judge — shipped 2026-08-16 (journal-026): runs only on
+      embedding-flagged candidates; confirmation raises outcome confidence
+      0.8→0.95, refutation corrects embedding false-positives to not-followed,
+      judge-down degrades to the embedding verdict. Notably it refused to
+      blame a workflow memory for a script-existence probe — the follow-gate
+      protecting against unfair credit, observed live.
+- [~] THE CURVE — **dynamics VALIDATED 2026-08-16** via the agent-driven
+      harness (tools/m3-harness/, journal-026): 8 rounds of real reuse loops
+      against the Pip VM. The store's MOST confident procedural memory
+      (2114, conf 1.00, "run pip_openbrain_autopromote_candidates.py") was
+      falsified by genuine probe failures → credit −0.285 on 3 samples →
+      confidence 1.00→0.215 in the committed consolidation → recall
+      re-ranked away from demoted memories on 3 of 4 dead-advice tasks.
+      Caveat recorded: a near-verbatim query keeps a demoted memory top
+      (RRF keyword dominance beats a 0.715× confidence multiplier);
+      demotion→eviction closes that over time. The LONG-RUN curve
+      (statistically meaningful climb) still needs organic usage volume —
+      that part stays open by design.
 - [x] Outcome scoring self-runs (worker sweeper); the loop is live.
 
 ## M4 — the knowledge tier (ADR-0006) ✅ SHIPPED 2026-08-13 (gyrus-side)

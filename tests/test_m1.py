@@ -209,3 +209,32 @@ def test_expiry_inferred_from_fact_words_on_ephemeral_tiers_only():
     ]
     out = extraction._clean(raw)
     assert [f.expires for f in out] == ["week", "day", None, None]
+
+
+# --- M3: LLM tip_followed judge ---------------------------------------------
+
+def test_follow_judge_parses_verdicts_and_tolerates_garbage(monkeypatch):
+    """The LLM leg confirms or refutes the embedding leg; anything unparseable
+    means None — the embedding verdict then stands. The judge is an upgrade,
+    never a dependency (a down judge must not stall outcome scoring)."""
+    import asyncio
+
+    from gyrus import gateway, outcomes
+
+    async def fake_chat(system, user, **kw):
+        return fake_chat.reply
+
+    monkeypatch.setattr(gateway, "chat_json", fake_chat)
+
+    fake_chat.reply = [{"followed": "yes"}]
+    assert asyncio.run(outcomes.judge_followed("tip", "action")) is True
+    fake_chat.reply = [{"followed": "no"}]
+    assert asyncio.run(outcomes.judge_followed("tip", "action")) is False
+    fake_chat.reply = [{"verdict": "banana"}]
+    assert asyncio.run(outcomes.judge_followed("tip", "action")) is None
+
+    async def dead_chat(system, user, **kw):
+        raise gateway.GatewayError("gateway down")
+
+    monkeypatch.setattr(gateway, "chat_json", dead_chat)
+    assert asyncio.run(outcomes.judge_followed("tip", "action")) is None

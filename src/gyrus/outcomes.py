@@ -28,13 +28,45 @@ import logging
 import re
 
 from . import db, gateway
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
 FOLLOW_EMB_THRESHOLD = 0.55     # cosine(memory, action) at/above = followed
 OUTCOME_FOLLOWED_OK = 1.0
 OUTCOME_FOLLOWED_FAIL = -0.3
-OUTCOME_CONFIDENCE = 0.8        # embedding-only; an LLM judge would raise this
+OUTCOME_CONFIDENCE = 0.8        # embedding-only
+OUTCOME_CONFIDENCE_LLM = 0.95   # embedding + LLM judge agree
+
+# M3's "LLM tip_followed judge (temp 0)" — the second leg the module docstring
+# promised. Runs ONLY on candidates the embedding leg already flagged as
+# followed: cosine similarity says "the action is near this memory", the judge
+# answers the sharper question "did the action actually APPLY it?". Agreement
+# raises outcome confidence; refutation corrects an embedding false-positive
+# to not-followed (similar wording, different deed — the confidently-wrong
+# case ADR-0002 warns about). Judge unavailable -> embedding verdict stands at
+# its own confidence; the leg is an upgrade, never a dependency.
+FOLLOW_JUDGE_SYSTEM = """You judge whether an AI agent's actions FOLLOWED a \
+remembered tip. The tip is a procedural memory (a command, workflow, or \
+configuration). The action log shows what the agent actually did (its tool \
+calls and text). Answer "yes" only if the action concretely applies what the \
+tip describes — same command/script/approach, not merely the same topic.
+Return ONLY a JSON array: [{"followed": "yes"|"no"}]"""
+
+
+async def judge_followed(fact: str, action: str) -> bool | None:
+    """True/False from the LLM leg; None when the judge can't answer."""
+    try:
+        objs = await gateway.chat_json(
+            FOLLOW_JUDGE_SYSTEM,
+            f"Tip:\n{fact}\n\nAction log:\n{action[:4000]}",
+            model=settings.outcome_judge_model, max_tokens=500)
+    except gateway.GatewayError:
+        return None
+    for o in objs:
+        if isinstance(o, dict) and str(o.get("followed", "")).lower() in ("yes", "no"):
+            return o["followed"].lower() == "yes"
+    return None
 
 _FAIL_MARKERS = re.compile(
     r'"success"\s*:\s*false|"error"|traceback|can\'t open|no such file|'
@@ -111,17 +143,26 @@ async def score_turn(conn, turn_id: int) -> dict:
                 "SELECT 1 - (embedding <=> $1::vector) FROM memories WHERE id=$2",
                 act_vec, r["memory_id"])
         followed = followed_emb is not None and followed_emb >= FOLLOW_EMB_THRESHOLD
+        confidence = OUTCOME_CONFIDENCE
+        if followed and settings.outcome_llm_judge:
+            verdict = await judge_followed(r["fact"], act)
+            if verdict is True:
+                confidence = OUTCOME_CONFIDENCE_LLM
+            elif verdict is False:
+                followed = False        # embedding false-positive, corrected
         if not followed:
             # No evidence this memory drove the action → no outcome signal about it.
             await conn.execute(
-                "UPDATE memory_retrievals SET followed_emb=$2, followed_computed_at=now()"
+                "UPDATE memory_retrievals SET followed_llm=false,"
+                " followed_emb=$2, followed_computed_at=now()"
                 " WHERE id=$1", r["id"], followed_emb)
             continue
         value = OUTCOME_FOLLOWED_OK if success_rate >= 0.5 else OUTCOME_FOLLOWED_FAIL
         await conn.execute(
             "UPDATE memory_retrievals SET outcome_value=$2, outcome_confidence=$3,"
-            " followed_emb=$4, followed_computed_at=now() WHERE id=$1",
-            r["id"], value, OUTCOME_CONFIDENCE, followed_emb)
+            " followed_emb=$4, followed_llm=$5, followed_computed_at=now() WHERE id=$1",
+            r["id"], value, confidence, followed_emb,
+            confidence == OUTCOME_CONFIDENCE_LLM)
         scored += 1
     logger.info("outcomes turn %s: tools %d/%d ok, %d procedural recalls scored",
                 turn_id, ok, ok + fail, scored)

@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     backfill_grace_hours: int = 24
     dedupe_threshold: float = 0.93     # cosine at/above this = corroboration
 
+    # --- outcomes (M3) ---
+    # The LLM tip_followed leg (outcomes.py): confirms/refutes the embedding
+    # leg's "followed" verdicts. lab/flash is enough — one yes/no about one
+    # tip and one action log; contract adherence doesn't matter at that size.
+    outcome_llm_judge: bool = True
+    outcome_judge_model: str = "lab/flash"
+
     # --- retrieval ---
     recall_k: int = 5                  # memories injected per turn
     recall_pool: int = 40              # candidates per leg before fusion
