@@ -278,6 +278,12 @@ keep this honest — it's the fast read on where the build actually is.
 - [ ] Public exposure (Caddy route + Authentik, per LAB.md) — only if/when
       Ken wants the face reachable off-LAN; the token is necessary but not
       sufficient for that step.
+- [ ] **`explain_memory` MCP tool** (Ken 2026-08-16): on-demand live graph
+      traversal — a memory's full SUPERSEDED_BY provenance chain (what
+      replaced what, when, why per retired_reason) + its entity
+      neighborhood. On-demand ≠ hot path, so bolt latency is fine here;
+      this is where the bi-temporal history becomes VISIBLE instead of
+      just stored.
 
 ## M8 — ingest breadth + production
 - [ ] Zulip backfill from the Zulip server (pre-Hermes history, no 45-day prune).

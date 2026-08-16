@@ -56,7 +56,7 @@ async def _require_token(request, call_next):
     open-LAN posture and changes nothing."""
     import secrets
 
-    if settings.api_token and request.url.path != "/health":
+    if settings.api_token and request.url.path not in ("/health", "/metrics"):
         auth = request.headers.get("authorization", "")
         supplied = auth.removeprefix("Bearer ").strip()
         if not (supplied and secrets.compare_digest(supplied, settings.api_token)):
@@ -97,6 +97,39 @@ async def health() -> dict[str, Any]:
         " (SELECT count(*) FROM memories WHERE retired_at IS NULL) AS memories,"
         " (SELECT count(*) FROM memories WHERE retired_at IS NULL AND embedding IS NULL) AS unembedded")
     return {"ok": True, "version": __version__, **dict(row)}
+
+
+@app.get("/metrics")
+async def metrics() -> "PlainTextResponse":
+    """M8: Prometheus scrape target (lab convention — .203 scrapes tenants).
+    Counts only, no memory content; open like /health. Hand-rolled text
+    format: a client library is overkill for gauges derived from one query."""
+    from fastapi.responses import PlainTextResponse
+
+    pool = await db.get_pool()
+    tiers = await pool.fetch(
+        "SELECT tier, count(*) AS n FROM memories WHERE retired_at IS NULL GROUP BY tier")
+    row = await pool.fetchrow(
+        "SELECT (SELECT count(*) FROM episodic_turns) AS turns,"
+        " (SELECT count(*) FROM episodic_turns WHERE extracted_at IS NULL) AS pending,"
+        " (SELECT count(*) FROM memories WHERE retired_at IS NULL AND embedding IS NULL) AS unembedded,"
+        " (SELECT count(*) FROM memories WHERE retired_at IS NOT NULL) AS retired,"
+        " (SELECT count(*) FROM memory_retrievals) AS retrievals,"
+        " (SELECT count(*) FROM memory_retrievals WHERE outcome_value IS NOT NULL) AS outcomes,"
+        " (SELECT extract(epoch from max(consolidated_at)) FROM memories) AS last_consolidation,"
+        " (SELECT count(*) FROM entity_relations) AS entity_relations")
+    out = []
+    for r in tiers:
+        out.append(f'gyrus_memories{{tier="{r["tier"]}"}} {r["n"]}')
+    out.append(f'gyrus_turns_total {row["turns"]}')
+    out.append(f'gyrus_turns_pending {row["pending"]}')
+    out.append(f'gyrus_memories_unembedded {row["unembedded"]}')
+    out.append(f'gyrus_memories_retired_total {row["retired"]}')
+    out.append(f'gyrus_retrievals_total {row["retrievals"]}')
+    out.append(f'gyrus_outcomes_scored_total {row["outcomes"]}')
+    out.append(f'gyrus_last_consolidation_timestamp {row["last_consolidation"] or 0}')
+    out.append(f'gyrus_entity_relations {row["entity_relations"]}')
+    return PlainTextResponse("\n".join(out) + "\n")
 
 
 @app.post("/v1/turns", status_code=201)

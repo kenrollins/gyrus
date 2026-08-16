@@ -310,3 +310,39 @@ def test_graph_row_shaping_preserves_null_event_time():
     assert out[0]["event_at"] is None and out[0]["retired_at"] is None
     assert isinstance(out[1]["event_at"], float)
     assert out[1]["superseded_by"] == 1
+
+
+def test_claude_lane_never_corroborates(monkeypatch):
+    """Echo-chamber guard (journal-031): once Claude sessions can READ the
+    store over MCP, a session restating a recalled fact in its memory file
+    is a repeater, not a witness — the claude lane folds near-dups silently,
+    never bumps. Cross-source corroboration must come from non-claude sources."""
+    import asyncio
+
+    from gyrus import extraction, gateway
+
+    async def fake_embed(texts, **kw):
+        return [[0.1] * 4 for _ in texts]
+
+    monkeypatch.setattr(gateway, "embed", fake_embed)
+    monkeypatch.setattr(gateway, "to_pgvector", lambda v: "[0.1]")
+
+    bumps = []
+
+    class Conn:
+        async def fetchrow(self, sql, *args):
+            if sql.lstrip().startswith("SELECT id, source_key"):
+                return {"id": 42, "source_key": "github:kenrollins/gyrus", "sim": 0.99}
+            return None
+        async def execute(self, sql, *args):
+            bumps.append(args)
+        async def executemany(self, *a):
+            pass
+
+    f = extraction.Fact(tier="knowledge", fact="a fact the store already holds",
+                        entities=[], provenance="relayed", source_type="claude")
+    written = asyncio.run(extraction.persist(Conn(), [f], turn_id=None,
+                                             session_id=None,
+                                             source_key="claude:gemma-forge"))
+    assert written == 0        # folded, not inserted
+    assert bumps == []         # and NO corroboration bump despite different source_key

@@ -317,7 +317,13 @@ async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = Non
     window = render_window(messages)
     if not window.strip():
         return []
-    kw: dict[str, Any] = {"max_tokens": max_tokens} if max_tokens else {}
+    # Default to the ADR-0010 bench budget, not chat_json's 4000: the
+    # fallback lane is a THINKING model that returns empty content when the
+    # budget starves mid-reasoning (measured again live, 2026-08-16 — a
+    # gateway hiccup failed over to lab/reason, which then starved at 4000
+    # and the whole window failed). The bench proved both lanes at 8000;
+    # production should extract under the conditions the bench validated.
+    kw: dict[str, Any] = {"max_tokens": max_tokens or 8000}
     if timeout:
         kw["timeout"] = timeout
     if template_kwargs:
@@ -433,8 +439,17 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
                 # inserts it once and then corroborates it with its own
                 # restatement — one utterance voting twice, on the tiers where
                 # ADR-0002 actually depends on the signal.
+                # The claude lane NEVER corroborates (the echo-chamber guard,
+                # journal-031): a Claude session that read a fact from this
+                # store and restated it in its memory file is a repeater, not
+                # an independent witness — and once sessions hold the MCP
+                # token, every round trip would launder provenance into
+                # authority. Novel claude insights still insert at full value;
+                # restatements fold silently. Corroboration for any fact must
+                # come from non-claude sources.
+                echo_risk = f.source_type == "claude"
                 same_source = source_key is not None and dup["source_key"] == source_key
-                if not same_source and dup["id"] not in fresh:
+                if not same_source and not echo_risk and dup["id"] not in fresh:
                     corroborate[dup["id"]] = corroborate.get(dup["id"], 0) + 1
                 continue
         # ADR-0011: an explicitly time-scoped fact carries its expiry; the
@@ -456,8 +471,9 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
             # still count.
             " ON CONFLICT (fact_hash) WHERE retired_at IS NULL DO UPDATE"
             "   SET corroboration_count = memories.corroboration_count"
-            "     + CASE WHEN memories.source_key IS NOT NULL"
-            "             AND memories.source_key = EXCLUDED.source_key"
+            "     + CASE WHEN (memories.source_key IS NOT NULL"
+            "                  AND memories.source_key = EXCLUDED.source_key)"
+            "              OR EXCLUDED.source_type = 'claude'"  # echo guard
             "            THEN 0 ELSE 1 END,"
             "       updated_at = now()"
             " RETURNING id, (xmax = 0) AS inserted",

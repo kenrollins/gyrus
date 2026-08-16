@@ -135,6 +135,70 @@ async def insights(source: str | None = None, limit: int = 10) -> str:
 
 
 @mcp.tool()
+async def explain_memory(memory_id: int) -> str:
+    """Why does gyrus believe this? Full provenance for one memory: its
+    supersession chain (what replaced what, when, and why), status, source,
+    event time, outcome evidence, and graph-derived entity neighborhood."""
+    rid = _rid()
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        m = await conn.fetchrow(
+            "SELECT id, tier, fact, provenance, confidence, source_type, source_ref,"
+            " event_at, created_at, retired_at, retired_reason, superseded_by_id,"
+            " corroboration_count, recall_count FROM memories WHERE id=$1", memory_id)
+        if not m:
+            return f"No memory with id {memory_id}."
+        # The supersession chain both directions — a linked list/tree in
+        # Postgres (recursive CTE), deliberately NOT a bolt query: provenance
+        # must be explainable even when the graph projection is down. The
+        # graph's contribution here is the offline-computed neighborhood below.
+        chain = await conn.fetch(
+            "WITH RECURSIVE up AS ("
+            "  SELECT id, superseded_by_id, 0 AS d FROM memories WHERE id=$1"
+            "  UNION ALL SELECT m.id, m.superseded_by_id, up.d+1"
+            "  FROM memories m JOIN up ON m.id = up.superseded_by_id WHERE up.d < 6),"
+            " down AS ("
+            "  SELECT id, 0 AS d FROM memories WHERE id=$1"
+            "  UNION ALL SELECT m.id, down.d-1 FROM memories m"
+            "  JOIN down ON m.superseded_by_id = down.id WHERE down.d > -6)"
+            " SELECT DISTINCT c.id, c.d, m.fact, m.retired_at, m.retired_reason,"
+            "        coalesce(m.event_at, m.created_at) AS t"
+            " FROM (SELECT id, d FROM up UNION SELECT id, d FROM down) c"
+            " JOIN memories m ON m.id = c.id ORDER BY c.d", memory_id)
+        ents = await conn.fetch(
+            "SELECT e.normalized, array_agg(er.related ORDER BY er.weight DESC)"
+            "        FILTER (WHERE er.related IS NOT NULL) AS related"
+            " FROM memory_entities e LEFT JOIN entity_relations er"
+            "   ON er.entity = e.normalized"
+            " WHERE e.memory_id = $1 GROUP BY e.normalized", memory_id)
+        outcomes = await conn.fetchrow(
+            "SELECT count(*) FILTER (WHERE outcome_value > 0) AS ok,"
+            "       count(*) FILTER (WHERE outcome_value < 0) AS fail"
+            " FROM memory_retrievals WHERE memory_id=$1 AND outcome_value IS NOT NULL",
+            memory_id)
+    lines = [f"Memory {m['id']} ({m['tier']}/{m['provenance']}, "
+             f"confidence {m['confidence']:.2f}): {m['fact']}"]
+    lines.append(f"  status: {'RETIRED — ' + (m['retired_reason'] or 'no reason') if m['retired_at'] else 'live'}")
+    lines.append(f"  event time: {(m['event_at'] or m['created_at']):%Y-%m-%d}"
+                 f" | source: {m['source_type'] or 'conversation'}"
+                 f"{' (' + m['source_ref'][:60] + ')' if m['source_ref'] else ''}")
+    lines.append(f"  signals: corroboration {m['corroboration_count']}, recalls "
+                 f"{m['recall_count']}, outcomes +{outcomes['ok']}/-{outcomes['fail']}")
+    if len(chain) > 1:
+        lines.append("  supersession chain (oldest belief last):")
+        for c in sorted(chain, key=lambda c: -c["d"]):
+            mark = "→ CURRENT" if not c["retired_at"] else f"(retired: {c['retired_reason']})"
+            lines.append(f"    [{c['id']} @{c['t']:%m-%d}] {c['fact'][:90]} {mark}")
+    if ents:
+        lines.append("  entity neighborhood (graph-derived):")
+        for e in ents[:6]:
+            rel = ", ".join((e["related"] or [])[:5]) or "—"
+            lines.append(f"    {e['normalized']} ↔ {rel}")
+    logger.info("mcp[%s] explain_memory(%d)", rid, memory_id)
+    return "\n".join(lines)
+
+
+@mcp.tool()
 async def add_memory(fact: str, tier: str = "factual",
                      entities: list[str] | None = None) -> str:
     """WRITE: store one memory. Goes through the same persist path as
