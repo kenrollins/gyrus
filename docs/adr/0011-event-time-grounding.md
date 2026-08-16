@@ -1,8 +1,15 @@
 # ADR-0011: Memories carry event time, not just extraction time
 
-- **Status:** Proposed (drafted by the 2026-08-15 audit session; needs Ken)
+- **Status:** Accepted (Ken, 2026-08-16)
 - **Date:** 2026-08-15
 - **Deciders:** Ken
+
+Implemented 2026-08-16: migration 0007 (`event_at`, `valid_until`), ingest
+sets `event_at` from the source item's `published_at`, prompt v1.3 emits
+`expires` on explicitly time-scoped facts (mapped via `EXPIRES_DAYS`), the
+knowledge evaluator scores recency on `coalesce(event_at, created_at)`, and
+the dream pass retires expired rows before scoring. Rode the same golden-set
+validation as the v1.3 cron/tier changes (journal-024).
 
 ## Context
 

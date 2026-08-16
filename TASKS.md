@@ -117,12 +117,16 @@ keep this honest — it's the fast read on where the build actually is.
       differing digit/identifier tokens → distinct; lab/flash for the
       remainder). Residual ≥0.93 chains converge with a second sweep pass
       (ran one: 23 folded; store 10,943).
-- [ ] **Cron suppression does not work** (ADR-0010). The prompt says automated
-      output yields nothing; on `cron-monday-brief` the 70B returns 6 facts and
-      the fast lane 13, attributing a scheduled job's own brief to `ken_said`.
-      `worker._extract_turn`'s platform filter covers the live path, so this is
-      defense-in-depth, not an active leak — but `/v1/extract-window` has no
-      such guard. Needs its own golden-set pass, since it is a prompt change.
+- [x] **Cron suppression FIXED 2026-08-16** (journal-024), two layers:
+      (1) deterministic — `/v1/extract-window` now 422s on any cron-platform
+      turn (the worker and backfill already filtered; this was the unlocked
+      door); (2) prompt v1.3 — the working tell is that automated output
+      usually SAYS it is automated (cron mentions, skill-dump user messages);
+      both cron goldens now return [] (were 6 and 4 facts). Golden-set
+      validated; the same pass fixed the knowledge/factual boundary
+      (wrong-tier ~20% -> ~0-3% on non-cron windows) and added ADR-0011's
+      `expires` (model ignores the field, so `_clean` infers it
+      deterministically on open_loop/preference).
 - Full findings: `docs/fable-review/04-handoff-queue.md`.
 
 ## M2 — dream pass ✅ SHIPPED 2026-08-13 (framework validated; committed first run, 78 merges)

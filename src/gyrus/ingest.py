@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 
 import httpx
 
@@ -56,9 +57,21 @@ async def _extract_item(conn, it: dict) -> int:
     label = f"[Source: {src} {ref}{author}]"
     msg = [{"role": "user", "content": f"{label}\n{it['title']}\n\n{it['body']}"}]
     facts = await extraction.extract(msg)
+    # ADR-0011: the source item's published_at (message Date:, arXiv
+    # submission, commit date) is the fact's EVENT time. Verified faithful
+    # upstream 2026-08-16 (email 311/311, arxiv 469/469, github now shipping
+    # commit dates). Without it, backfilled news scores as current.
+    event_at = None
+    if it.get("published_at"):
+        try:
+            event_at = datetime.fromisoformat(str(it["published_at"]).replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning("unparseable published_at %r on %s item %s",
+                           it["published_at"], src, ref)
     for f in facts:
         f.tier = "knowledge"                 # source-ingested is knowledge by definition
         f.source_type = src
+        f.event_at = event_at
         if not f.topic:
             f.topic = it.get("topic") or []
     async with conn.transaction():

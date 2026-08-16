@@ -148,3 +148,64 @@ def test_persist_refuses_to_insert_undeduped_when_embedder_is_down(monkeypatch):
     with pytest.raises(gateway.GatewayError):
         asyncio.run(extraction.persist(UntouchableConn(), [fact],
                                        turn_id=None, session_id=None))
+
+
+# --- ADR-0011: event time and expiry ---------------------------------------
+
+def test_clean_accepts_known_expires_and_drops_garbage():
+    """The model may only claim day/week/month; anything else means durable.
+    Guessing an expiry the words don't state would silently kill real facts."""
+    raw = [
+        {"tier": "open_loop", "fact": "Ken owes a reply to the NERSC thread this week",
+         "provenance": "observed", "expires": "week"},
+        {"tier": "factual", "fact": "Ken's vault path is ~/Documents/Obsidian",
+         "provenance": "ken_said", "expires": "eventually"},
+        {"tier": "preference", "fact": "Ken prefers one-paragraph explainers",
+         "provenance": "ken_said"},
+    ]
+    out = extraction._clean(raw)
+    assert [f.expires for f in out] == ["week", None, None]
+
+
+def test_knowledge_utility_decays_on_event_time_not_ingest_time():
+    """A March story ingested in August must decay as March news (ADR-0011).
+    created_at measures the ingest job; event_at measures the world."""
+    import sys
+    import types
+    from datetime import datetime, timedelta, timezone
+
+    # consolidate -> db -> asyncpg, which this pure-logic suite doesn't have;
+    # the utility function under test never touches a connection.
+    sys.modules.setdefault("asyncpg", types.ModuleType("asyncpg"))
+    from gyrus import consolidate
+
+    now = datetime.now(timezone.utc)
+    base = {"recall_count": 0, "browse_count": 0}
+    fresh_ingest_old_news = {**base, "created_at": now, "event_at": now - timedelta(days=150)}
+    fresh_ingest_fresh_news = {**base, "created_at": now, "event_at": now}
+    no_event_at = {**base, "created_at": now, "event_at": None}
+
+    assert consolidate._knowledge_utility(fresh_ingest_old_news) \
+        < consolidate._knowledge_utility(fresh_ingest_fresh_news)
+    # NULL event_at keeps today's behaviour exactly
+    assert consolidate._knowledge_utility(no_event_at) \
+        == consolidate._knowledge_utility(fresh_ingest_fresh_news)
+
+
+def test_expiry_inferred_from_fact_words_on_ephemeral_tiers_only():
+    """v1.3 bench: the model ignored the expires field even with a verbatim
+    example, so _clean infers it from the fact's own words — but only on
+    open_loop/preference, where frozen ephemera do damage. A knowledge claim
+    saying 'this week' stays durable (too often rhetorical)."""
+    raw = [
+        {"tier": "open_loop", "fact": "Verify the SalesChat delivery process by Monday",
+         "provenance": "assistant_suggested"},
+        {"tier": "preference", "fact": "Ken wants to avoid processing email tonight",
+         "provenance": "ken_said"},
+        {"tier": "knowledge", "fact": "Vendors are shipping PQC updates this week",
+         "provenance": "relayed"},
+        {"tier": "preference", "fact": "Ken prefers one-paragraph explainers",
+         "provenance": "ken_said"},
+    ]
+    out = extraction._clean(raw)
+    assert [f.expires for f in out] == ["week", "day", None, None]

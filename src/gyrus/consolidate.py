@@ -53,7 +53,11 @@ def _knowledge_utility(m: dict) -> float:
     u = BASE
     demand = m["recall_count"] + m.get("browse_count", 0)
     u += min(demand, 6) * KNOWLEDGE_DEMAND_STEP
-    age_days = (datetime.now(timezone.utc) - m["created_at"]).days
+    # ADR-0011: recency means EVENT recency. A March story ingested in August
+    # must decay as March news — created_at measures the ingest job, not the
+    # news. NULL event_at (live conversation, legacy rows) keeps created_at.
+    ref = m.get("event_at") or m["created_at"]
+    age_days = (datetime.now(timezone.utc) - ref).days
     u -= min(age_days / KNOWLEDGE_RECENCY_FADE_DAYS, 1.0) * 0.25
     return max(0.0, min(1.0, u))
 
@@ -64,6 +68,7 @@ class Report:
     outcome_scored: int = 0
     confidence_raised: int = 0
     confidence_lowered: int = 0
+    expired: int = 0                   # ADR-0011: valid_until passed, retired
     evict_candidates: list = field(default_factory=list)
     merges: list = field(default_factory=list)
     by_tier: dict = field(default_factory=dict)
@@ -93,9 +98,20 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
     pool = await db.get_pool()
     rep = Report()
     async with pool.acquire() as conn:
+        # ADR-0011: expired time-scoped facts retire BEFORE scoring — "Ken
+        # wants to avoid email tonight" must not spend weeks decaying toward
+        # eviction after the night has passed. Soft, like every retirement.
+        if commit:
+            expired = await conn.fetch(
+                "UPDATE memories SET retired_at = now(),"
+                " retired_reason = 'expired: valid_until ' || valid_until::date"
+                " WHERE retired_at IS NULL AND valid_until < now() RETURNING id")
+            rep.expired = len(expired)
+
         rows = await conn.fetch(
             "SELECT id, tier, fact, entities, provenance, confidence,"
-            " corroboration_count, recall_count, browse_count, created_at, embedding IS NOT NULL AS has_vec"
+            " corroboration_count, recall_count, browse_count, created_at,"
+            " event_at, embedding IS NOT NULL AS has_vec"
             " FROM memories WHERE retired_at IS NULL")
         # M3 credit assignment: true ground truth for the procedural tier.
         # AVG(outcome_value * outcome_confidence) over scored retrievals per
@@ -170,9 +186,10 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
         p.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         (p / f"dream-{stamp}.md").write_text(md)
-    logger.info("consolidation %s: scored=%d raise=%d lower=%d evict=%d merge=%d",
+    logger.info("consolidation %s: scored=%d raise=%d lower=%d evict=%d merge=%d expired=%d",
                 "COMMIT" if commit else "dry-run", rep.scored, rep.confidence_raised,
-                rep.confidence_lowered, len(rep.evict_candidates), len(rep.merges))
+                rep.confidence_lowered, len(rep.evict_candidates), len(rep.merges),
+                rep.expired)
     rep.markdown = md
     return rep
 

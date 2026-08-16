@@ -13,9 +13,19 @@ Prompt lineage (all measured in tools/extraction-eval/):
          lists extracted as "facts"; noise 1.6% -> 0.3% after the rule).
   v1.2 — + email-newsletter rule (email lane 2026-08-15: skip sponsor blocks,
          unsubscribe footers, polls; extract article claims as relayed).
+  v1.3 — 2026-08-16, three rules from the store audit (journal-020/023):
+         (1) knowledge/factual boundary sharpened ("would it be true if Ken
+         never existed?") — v1.2 misfiled ~20% of non-cron facts;
+         (2) automated-output recognition by SHAPE (standing job instruction +
+         report addressed to no one -> []) — cron windows extracted 6/4 facts
+         under v1.2 where the right answer is 0;
+         (3) ADR-0011 "expires" field on explicitly time-scoped facts
+         (day/week/month -> valid_until via EXPIRES_DAYS).
 
-Model: kaiju/nemotron:70b (ADR-0010). Scale is not the lever here — the 120B
-lost domain facts the 70B caught. Prompt design won; the big model does not.
+Model: the lab/extract shape (ADR-0012), bound to nemotron:70b on kaiju as of
+ADR-0010 — chosen on deliverability and contract adherence, measured on six
+golden windows. (An older line here claimed "the 120B lost domain facts the
+70B caught" — discredited, one window on the v0 prompt; see ADR-0010.)
 
 Going the other way is measured too, as of 2026-08-15: the fast lane
 (lab/flash == vllm/nemotron-lightning-l4, one backend under two names) is
@@ -44,6 +54,15 @@ engine-level run through the new shape name. Graded fact-by-fact:
   - cron windows still extract (6 and 4 facts where the right answer is 0) —
     the suppression defect in TASKS.md, unchanged, worker filter still the
     only guard.
+
+v1.3 VERIFIED 2026-08-16, same instrument (journal-024): 6/6 windows, 30
+facts. Cron windows now return [] on both goldens (the working tell:
+automated output usually SAYS it is automated — cron mentions, skill-dump
+user messages). Non-cron wrong-tier fell from ~20% to ~0-3% (conference
+world facts now knowledge|relayed). The model ignores the "expires" field
+even with a verbatim example, so _clean() infers expiry deterministically
+on open_loop/preference from the fact's own words — deterministic beats
+persuasive, same lesson as the cron guards.
 """
 
 from __future__ import annotations
@@ -51,7 +70,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from . import gateway
@@ -59,10 +80,14 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1.2"
+PROMPT_VERSION = "v1.3"
 
 TIERS = ("procedural", "factual", "preference", "open_loop", "knowledge")
 PROVENANCE = ("ken_said", "observed", "relayed", "assistant_suggested")
+# ADR-0011: the model's expiry classes -> how long the fact stays live.
+# Coarse on purpose — the model only sees the words ("tonight", "this week");
+# pretending finer resolution would be fiction.
+EXPIRES_DAYS = {"day": 2, "week": 9, "month": 35}
 
 SYSTEM = """You are the extraction pass of a personal AI agent's long-term memory system. \
 The agent (Pip) serves one user, Ken. You receive a window of a real conversation and \
@@ -84,6 +109,20 @@ Ken recording the WORLD he's tracking (-> knowledge)? "Ken's vault path is X" is
 personal-factual; "RIKEN's ROQUO is a GPU-quantum supercomputer" is knowledge.
 When Ken transcribes a talk or forwards a paper, its content is knowledge
 (provenance "relayed"), not a fact about Ken.
+The test: WOULD THE SENTENCE STILL BE TRUE IF KEN HAD NEVER EXISTED? Then it is
+"knowledge", never "factual". Institutional and organizational facts — a
+research center exists at a lab, a company's product or roadmap, a program's
+structure, who runs or collaborates on what — are "knowledge" unless Ken is a
+member of them or they are his own projects. "Q-NEXT is a research center at
+Argonne" is knowledge; "Ken's dell-vendor-intel project maps vendors to
+categories" is factual. Reserve "factual" for facts ABOUT Ken's world: his
+projects, systems, colleagues, employer, commitments.
+This holds even when Ken himself is the one typing: in conference or talk
+notes, the sessions, speakers, their claims, vendor products, papers, arXiv
+ids, and URLs are ALL "knowledge" with provenance "relayed" — Ken writing
+"Microsoft Azure has a Resource Estimator" into his notes does not make it a
+fact about Ken. The only personal facts in a conference window are Ken's own
+actions, contacts made, and follow-ups owed.
 
 Label how the memory is known (provenance):
 - "ken_said": Ken asserted it about himself, his work, or his preferences
@@ -106,9 +145,23 @@ Discernment rules (the whole point — most of the conversation is NOT memory):
   pronouns or "the above"), and GROUNDED in the window (no outside knowledge,
   no embellishment, no inference beyond what was said).
 - Deduplicate: repeated or duplicated messages yield one memory, not two.
-- If the window is automated output (a scheduled job's report, a news digest)
-  rather than a human exchange, extract NOTHING. Content a script produced is
-  never a preference of Ken's.
+- If the window is automated output rather than a human exchange, extract
+  NOTHING — return []. Recognize automated output by its SHAPE, not its topic:
+  the "user" message is a standing job instruction or template (a scheduled
+  brief, a "weekly questions" job, a radar/digest/monitor prompt, a cron task
+  describing its own schedule), and the "assistant" message is a formatted
+  report addressed to no one, with no human back-and-forth. Two more tells,
+  each sufficient on its own: (a) ANY text in the window saying the exchange
+  is a scheduled or automated run — "cron", "scheduled job", "when running as
+  a scheduled task", "this brief was generated" — means return [], full stop;
+  (b) a "user" message that is a pasted skill definition, command file, or
+  instruction block (frontmatter, "# Skill", "[IMPORTANT: the user has
+  invoked...]") with no spontaneous human question attached is a job harness,
+  not a person. When any tell is present the correct output is [] EVEN IF the
+  report contains true and interesting facts — a scheduled job restating
+  facts is not Ken saying them, and a job's own instructions are not Ken's
+  preferences. If you are unsure whether a window is automated, ask: did a
+  human write anything in it spontaneously? If not, return [].
 - When the window is a SOURCE DOCUMENT (a README, journal entry, or notes file,
   usually marked with a [Source: ...] header) rather than a live exchange,
   extract the durable CLAIMS it makes — findings, decisions, metrics, facts —
@@ -124,8 +177,18 @@ Discernment rules (the whole point — most of the conversation is NOT memory):
   CTAs, reader polls, social links, and any garbled or decorative text. Read-time
   estimates and section headers are not memories.
 
+- If a fact's own words scope it in time — "tonight", "today", "next session",
+  "this week", "by Monday", "this month" — it is usually NOT durable: skip it
+  unless it is a real open_loop, or a durable fact/preference underneath the
+  scope. When you do extract a time-scoped fact, add an "expires" field:
+  "day" (tonight / today / next session), "week" (this week / by a weekday),
+  or "month" (this month / this quarter). Example: "Verify the delivery
+  process on Monday" -> {"tier": "open_loop", ..., "expires": "week"}. An
+  open_loop with a stated deadline should ALWAYS carry expires. Facts with no
+  stated time scope must OMIT the field — never guess an expiry.
+
 Return ONLY a JSON array (no markdown fences, no prose):
-[{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "...", "topic": ["..."]}]
+[{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "...", "topic": ["..."], "expires": "day|week|month — ONLY when the fact is explicitly time-scoped"}]
 Return [] if nothing qualifies."""
 
 
@@ -137,6 +200,13 @@ class Fact:
     provenance: str
     topic: list[str] = None            # knowledge-tier tags (None -> [])
     source_type: str = "conversation"  # where it came from; thalamus overrides for M5
+    # ADR-0011: the model flags explicitly time-scoped facts ("tonight",
+    # "this week") with an expiry class; persist() turns it into valid_until.
+    expires: str | None = None         # "day" | "week" | "month" | None
+    # When the fact was true/observed. Set by the INGEST path from the source
+    # item's published_at (message date, arXiv submission, commit date) —
+    # never by the model, which has no calendar. None = unknown (created_at).
+    event_at: datetime | None = None
 
     def __post_init__(self):
         if self.topic is None:
@@ -168,6 +238,24 @@ def render_window(messages: Iterable[dict[str, Any]], *, char_budget: int | None
     return text
 
 
+_EXPIRY_PATTERNS = (
+    (r"\b(tonight|this evening|later today|next session|by tomorrow|tomorrow morning)\b", "day"),
+    (r"\b(this week|by (mon|tues|wednes|thurs|fri|satur|sun)day|on (mon|tues|wednes|thurs|fri|satur|sun)day|by end of (the )?week|next week)\b", "week"),
+    (r"\b(this month|this quarter|by end of (the )?month)\b", "month"),
+)
+
+
+def _infer_expiry(fact: str) -> str | None:
+    """ADR-0011 backstop: read the time scope the fact's own words state.
+    Conservative on purpose — bare 'today' is excluded (too often rhetorical),
+    and no match means durable, never a guess."""
+    low = fact.lower()
+    for pat, cls in _EXPIRY_PATTERNS:
+        if re.search(pat, low):
+            return cls
+    return None
+
+
 def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
     """Validate and normalize model output. Anything malformed is dropped."""
     out: list[Fact] = []
@@ -186,7 +274,19 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
         entities = [" ".join(str(e).split()) for e in ents if str(e).strip()][:24]
         tops = item.get("topic") or []
         topic = [" ".join(str(t).split()).lower() for t in tops if str(t).strip()][:6]
-        f = Fact(tier=tier, fact=fact, entities=entities, provenance=prov, topic=topic)
+        expires = str(item.get("expires", "")).strip().lower() or None
+        if expires not in EXPIRES_DAYS:            # anything unrecognized -> durable
+            expires = None
+        if expires is None and tier in ("open_loop", "preference"):
+            # The golden-set pass showed the model ignoring the expires field
+            # even with a verbatim example (v1.3 bench, 2026-08-16), so the
+            # prompt rule gets a deterministic backstop — same lesson as the
+            # cron guard. Only on the tiers where frozen ephemera do damage:
+            # a knowledge claim saying "today" is usually rhetoric, but an
+            # open_loop "by Monday" or a preference "tonight" has a real clock.
+            expires = _infer_expiry(fact)
+        f = Fact(tier=tier, fact=fact, entities=entities, provenance=prov, topic=topic,
+                 expires=expires)
         if f.hash in seen:      # the model repeating itself within one window
             continue
         seen.add(f.hash)
@@ -323,17 +423,33 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
                 if not same_source and dup["id"] not in fresh:
                     corroborate[dup["id"]] = corroborate.get(dup["id"], 0) + 1
                 continue
+        # ADR-0011: an explicitly time-scoped fact carries its expiry; the
+        # dream pass retires it once valid_until passes. event_at comes from
+        # the source item (ingest path) and is NULL for live conversation.
+        valid_until = None
+        if f.expires in EXPIRES_DAYS:
+            valid_until = datetime.now(timezone.utc) + timedelta(days=EXPIRES_DAYS[f.expires])
         row = await conn.fetchrow(
             "INSERT INTO memories (tier, fact, entities, provenance, embedding, fact_hash,"
             " source_turn_id, source_session_id, extractor, source_type, source_ref, topic,"
-            " source_key)"
-            " VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8, $9, $10, $11, $12, $13)"
+            " source_key, event_at, valid_until)"
+            " VALUES ($1, $2, $3, $4, $5::vector, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"
+            # The exact-hash bump honours the same independence rule as the
+            # cosine path (migration 0006): a source re-serving its own
+            # sentence verbatim — an edited github doc re-crossing with its
+            # unchanged paragraphs (thalamus content-hash change, 2026-08-16)
+            # — is repetition, not corroboration. Cross-source exact matches
+            # still count.
             " ON CONFLICT (fact_hash) WHERE retired_at IS NULL DO UPDATE"
-            "   SET corroboration_count = memories.corroboration_count + 1, updated_at = now()"
+            "   SET corroboration_count = memories.corroboration_count"
+            "     + CASE WHEN memories.source_key IS NOT NULL"
+            "             AND memories.source_key = EXCLUDED.source_key"
+            "            THEN 0 ELSE 1 END,"
+            "       updated_at = now()"
             " RETURNING id, (xmax = 0) AS inserted",
             f.tier, f.fact, f.entities, f.provenance, pgvec, f.hash,
             turn_id, session_id, f"{settings.extract_model}:{PROMPT_VERSION}",
-            f.source_type, source_ref, f.topic, source_key)
+            f.source_type, source_ref, f.topic, source_key, f.event_at, valid_until)
         if row and row["inserted"]:
             written += 1
             fresh.add(row["id"])

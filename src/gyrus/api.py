@@ -116,6 +116,24 @@ async def extract_window(w: WindowIn) -> dict[str, Any]:
     from . import extraction
     from .gateway import GatewayError
 
+    # Cron guard, same rule as worker._extract_turn: a scheduled job's output
+    # is never a memory. The worker filters on the live path and the backfill
+    # filters at its source query; this was the one door with no lock —
+    # v1.2's prompt rule alone let cron windows extract 6 and 4 facts on the
+    # golden set. Deterministic beats persuasive: refuse the window outright
+    # (422, nothing stamped) and let the caller fix its window.
+    if w.turn_ids:
+        pool = await db.get_pool()
+        cron_ids = [r["id"] for r in await pool.fetch(
+            "SELECT id FROM episodic_turns WHERE id = ANY($1::bigint[])"
+            " AND lower(coalesce(platform, '')) = 'cron'", w.turn_ids)]
+        if cron_ids:
+            raise HTTPException(
+                status_code=422,
+                detail=f"window contains cron-platform turns {cron_ids}; "
+                       "scheduled output is never extracted (remove them or "
+                       "mark them skipped)")
+
     try:
         facts = await extraction.extract_union(w.messages)
     except GatewayError as e:
