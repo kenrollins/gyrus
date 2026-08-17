@@ -265,3 +265,46 @@ deleted hours earlier. Caught before the gateway restart. The lesson is not
 substring in a config, and one of them is poison. The contract probe would have
 caught it, which is the argument for running the gate on every repoint and not
 only on new lanes.
+
+## Operational findings from the same session, recorded so they don't evaporate
+
+Three that are not about placement but came out of buttoning it up.
+
+**Both engines were running at HALF their native context windows.** The L4
+Lightning at 65536 and the GB10 120B at 131072, both native 262144. That was
+not a tuning choice, it was inherited — and it was actively breaking things.
+Hermes sets a global `max_tokens: 16384`, so a 65536-window lane hard-fails any
+prompt over 49,152 input tokens. Found live in the logs:
+`background_review` died on **49,153 + 16,384 = 65,537 against a 65,536
+ceiling** — off by one token. Both raised to native; the KV pools had ample
+headroom the whole time (L4 1,448,526 tokens at 5.5x concurrency, GB10
+6,957,443 at 25.9x). The lesson is that a context ceiling and an output cap
+interact, and neither number means anything alone.
+
+**A reasoning model was doing mechanical work.** Hermes' `compression` slot was
+bound to `pip/reason` — the GB10 120B with thinking ON, at 15.7 tok/s the
+slowest lane in the lab, spending ~69% of every response deliberating about how
+to compress something. Moved to a new `pip/reason-strict` (same engine, thinking
+pinned off): **8.33s -> 2.12s and 129 -> 31 tokens** on the same prompt, 3.9x
+faster for a quarter the tokens. Four more slots
+(`triage_specifier`, `kanban_decomposer`, `profile_describer`, `monitor`) moved
+from `reason-fast` to no-think `pip/fast` on the same reasoning: classification
+does not need deliberation.
+
+**Pip's main conversational slot moved to Codex over OAuth**, with local
+silicon inverted from primary into the fallback, so she degrades to the GB10
+rather than going dark. Conversational traffic leaves the LiteLLM ledger by
+deliberate choice — a fully operational agent was judged worth more than
+complete spend tracking, and the 17 auxiliary slots still cover every mechanical
+call. Worth recording a correction: an earlier claim here that device-code OAuth
+was outside OpenAI's terms was **wrong**. `auth_type: oauth`,
+`source: manual:device_code` is the sanctioned "Sign in with ChatGPT" path for
+Codex, billed against the subscription rather than per-token API credits. The
+config had it wired as a first-class provider all along.
+
+Also checked and found to be a non-issue: **thalamus makes no gateway calls at
+all** — no key, nothing in the ledger. It is the ingestion boundary; gyrus does
+every model call. There was never a second service grabbing models.
+
+The hallucination and model-survey findings from this session are their own
+entry — see [journal-034](2026-08-17-they-do-not-hallucinate-when-they-read.md).
