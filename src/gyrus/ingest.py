@@ -39,6 +39,18 @@ THALAMUS_URL = os.environ.get("THALAMUS_URL", "http://10.0.13.14:8000").rstrip("
 # decides which roots ship, thalamus normalizes, we extract.
 TRUSTED_SOURCES = {"github", "notes", "conference", "email", "claude"}
 
+# The firehose gate's fixed reference points — Ken's interest profile as
+# embeddings (source: the ken-interest-profile assessment, 2026-08-14).
+# Deliberately NOT derived from the store: fixed anchors can't saturate as
+# the store grows, which is exactly how the previous gate died. Update these
+# when Ken's focus shifts; each change deserves a re-validation sample.
+PROFILE_ANCHORS = [
+    "AI infrastructure, agentic systems, LLM serving and inference deployment, GPU datacenters",
+    "hybrid quantum-HPC computing, quantum error correction, quantum software stacks, quantum sensing",
+    "federal government technology, DOE national laboratory programs, defense and public-sector AI",
+    "Dell enterprise hardware, server platforms, AI factory deployments",
+]
+
 
 def _source_key(it: dict) -> str:
     """Canonical origin identity for the independence check in persist():
@@ -127,21 +139,30 @@ async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int)
     selected_firehose: list[dict] = []
     pool = await db.get_pool()
 
-    # Firehose: score each abstract against Ken's existing interests (front gate).
+    # Firehose front gate: score each abstract against PROFILE ANCHORS, not
+    # the store. The original max-cosine-vs-store gate died of the store's
+    # success (measured 2026-08-17: all 469 arxiv items scored >= 0.593 —
+    # a 10k-memory store resembles everything, so the 0.55 floor rejected
+    # 0%). Fixed anchors don't saturate: on the graded sample the anchor
+    # score split relevant from irrelevant cleanly (min-relevant 0.653 vs
+    # max-irrelevant 0.606; n=16, journal-032). The top-N cap remains the
+    # volume control; the floor is back to being a relevance control.
     if firehose:
+        import math
+
+        def _cos(a: list[float], b: list[float]) -> float:
+            dot = sum(x * y for x, y in zip(a, b))
+            na = math.sqrt(sum(x * x for x in a))
+            nb = math.sqrt(sum(x * x for x in b))
+            return dot / (na * nb) if na and nb else 0.0
+
+        anchor_vecs = [v for v in await gateway.embed(PROFILE_ANCHORS) if v]
         vecs = await gateway.embed(
             [f"{it['title']}. {it['body']}"[:6000] for it in firehose])
         scored = []
-        async with pool.acquire() as conn:
-            for it, v in zip(firehose, vecs):
-                pgv = gateway.to_pgvector(v)
-                rel = 0.0
-                if pgv is not None:
-                    rel = await conn.fetchval(
-                        "SELECT COALESCE(max(1 - (embedding <=> $1::vector)), 0) FROM memories"
-                        " WHERE retired_at IS NULL AND embedding IS NOT NULL"
-                        "   AND tier IN ('knowledge','preference','factual')", pgv) or 0.0
-                scored.append((rel, it))
+        for it, v in zip(firehose, vecs):
+            rel = max((_cos(v, av) for av in anchor_vecs), default=0.0) if v else 0.0
+            scored.append((rel, it))
         scored.sort(key=lambda x: -x[0])
         selected_firehose = [it for rel, it in scored if rel >= relevance_floor][:max_extract]
 
@@ -180,7 +201,7 @@ async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int)
             "cursor": new_cursor}
 
 
-async def pull_and_ingest(*, max_extract: int = 12, relevance_floor: float = 0.55,
+async def pull_and_ingest(*, max_extract: int = 12, relevance_floor: float = 0.60,
                           batch: int = 100, drain: bool = False) -> dict:
     """One batch by default; drain=True loops until the cursor catches up (used
     to chew through a large first backlog like the initial github pull)."""

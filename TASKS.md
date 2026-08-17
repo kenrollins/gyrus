@@ -257,8 +257,15 @@ keep this honest — it's the fast read on where the build actually is.
 - [ ] **Mid-Sep re-grade** against baseline-2 (seed 0.43,
       `tools/store-audit/GRADING-BASELINE-2.md`) — the honest progress
       metric; keep-rate delta per stratum, never memory counts.
-- [ ] Firehose relevance floor (0.55) — never validated (audit brief
-      "never tested, and load-bearing" list; the last survivor from it).
+- [x] Firehose relevance floor — VALIDATED 2026-08-17 (journal-032), and
+      the finding was bigger than the number: the max-cosine-vs-store gate
+      was a NO-OP — all 469 arxiv items scored ≥0.593 against a 10k-memory
+      store (the gate died of the store's success; only the top-12 cap was
+      filtering). Replaced with fixed PROFILE_ANCHORS scoring (can't
+      saturate), floor 0.60: clean split on the graded sample
+      (min-relevant 0.653 vs max-irrelevant 0.606; n=16 — small, stated).
+      Re-validate when anchors change. The last never-validated number
+      from the original audit brief is now measured.
 - [ ] RRF keyword-dominance watch: a demoted memory (conf 0.215) still tops
       near-verbatim queries (journal-026 caveat). No fix yet, by choice —
       eviction closes it slowly; revisit only if organic usage shows recall
