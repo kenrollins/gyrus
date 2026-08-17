@@ -303,8 +303,13 @@ keep this honest — it's the fast read on where the build actually is.
 
 ## M8 — ingest breadth + production
 - [ ] Zulip backfill from the Zulip server (pre-Hermes history, no 45-day prune).
-- [ ] Prometheus metrics (consolidation, counts by tier, recall latency, success
-      curve, knowledge freshness).
+- [x] Prometheus metrics — /metrics live (counts by tier, pending,
+      unembedded, retired, retrievals, outcomes, last-consolidation
+      timestamp, entity_relations) and REGISTERED: .203 scrapes gyrus,
+      target verified up 2026-08-17. last_consolidation staleness is the
+      dream-pass dead-man switch. Optional follow-ups if ever wanted:
+      recall-latency histogram, tool-success-on-recall gauge (the curve as
+      a time series — nice for the mid-Sep re-grade).
 - [ ] Provision the reserved `.11` allocation (LAB.md); operator DNS/Authentik
       only if a public face is wanted.
 
