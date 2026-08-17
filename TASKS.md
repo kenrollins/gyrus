@@ -308,6 +308,16 @@ keep this honest — it's the fast read on where the build actually is.
 - [ ] Provision the reserved `.11` allocation (LAB.md); operator DNS/Authentik
       only if a public face is wanted.
 
+## Shape-binding validation log (ADR-0012: every engine swap gets a golden pass)
+- 2026-08-16: shapes introduced; lab/extract = ollama nemotron:70b (kaiju).
+  Baseline: 6/6, 30 facts, ~178s, cron 0/0.
+- 2026-08-17 ~03:00: post fleet re-engineering — bindings unchanged, behavior
+  matches baseline. 6/6.
+- 2026-08-17 ~12:15: Ken rebound lab/extract → Nemotron-70B AWQ-INT4 on vLLM
+  (OpenAI-style). VALIDATED same day: 6/6, 32 facts, 146.8s (20% faster),
+  cron 0/0, tier boundary holds (18 knowledge/relayed). New quirk: wraps
+  empty results in markdown bold (**[]**) — salvage parser absorbs it.
+
 ## Guardrails to hold the whole way
 - [ ] Never store transcripts as memory (extract first).
 - [ ] Never vector-only retrieval (hybrid).
