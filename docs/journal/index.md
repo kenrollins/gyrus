@@ -52,6 +52,7 @@
 ### 2026-08-17
 
 - [The gate that died of success](2026-08-17-the-gate-that-died-of-success.md) — The overnight chain validated the last untested number from the audit brief and found the firehose relevance gate had been a no-op — every arxiv item cleared 0.55 because a 10k-memory store resembles everything — replaced with fixed profile anchors that split relevant from irrelevant cleanly; the same night, the lab's model re-engineering passed its ADR-0012 golden-set check without gyrus changing a line.
+- [The least flexible box should hold the busiest model](2026-08-17-the-least-flexible-box-should-hold-the-busiest-model.md) — A day on why the GB10 wasn't winning ended with the fleet's real rule: decode speed is set by ACTIVE parameters against memory bandwidth (dense 70B measured 5.5 tok/s there vs 19.4 on kaiju's Adas, identical weights), and the box that can't change its mind should hold the workload that never stops — plus a blind 80-fact grading that kept the 70B workhorse and three quantizations that each failed differently, one of them silently.
 
 ## Gotchas
 
