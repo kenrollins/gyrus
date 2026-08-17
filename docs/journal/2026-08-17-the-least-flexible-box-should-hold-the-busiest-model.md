@@ -208,3 +208,60 @@ fixed.
 
 Tracked as backlog #16 and #17. The measurements are done; what remains is a
 placement decision and an image upgrade, not another benchmark.
+
+## Addendum, same day: it landed, via the model nobody had to fight
+
+The entry above stopped with the cutover blocked. It isn't any more, and the
+unblock was a smaller idea than the one being forced.
+
+Path A was "get Lightning onto the GB10," which needs per-model image support
+and a newer vLLM validated on Blackwell. Path B asked a different question:
+**does the GB10's current image already serve something that can do the flash
+job?** It did — `qwen35-a3b` (Qwen3.6-35B-A3B NVFP4, 21 GB, ~3B active), whose
+own registry description had read "Flash lane: MoE 3B-active — near-dense
+quality at flash decode" since it was staged. The weights were already on disk.
+
+Gated before repointing anything:
+
+| check | result |
+|---|---|
+| contract probe | PASS |
+| flash perf bar (>=40 tok/s) | **77.4 tok/s**, TTFT 0.105s |
+| tool calling | correct call, matches the incumbent |
+| thinking ON terminates | **finish=stop with real content** |
+| co-resident under load | **16/16 and 8/8 at 5.4k tokens, zero errors** |
+
+That fourth row is why `reason-fast` survived. The plan had been to collapse it
+onto the 120B, because Lightning FP8's thinking never terminated. Qwen's does,
+so the fast-thinking tier stayed a fast tier instead of taking a 7x latency hit.
+
+The fifth row is the one that mattered. The L4 co-residency attempt passed a
+contract probe and then died on every real window; this time both engines were
+driven simultaneously with 5.4k-token prompts and neither dropped a request.
+**Single-GPU co-residency works where tensor-parallel co-residency did not** —
+no NCCL all-reduce scratch to eat the margin invisibly.
+
+The honest cost: one GPU timeshares compute, so under simultaneous heavy load
+flash fell from 77.4 to 4.4 tok/s. Acceptable at 969 req/mo of bursty traffic,
+and worth revisiting if that grows.
+
+Final placement, measured on the live lane rather than a bench alias:
+
+| Box | Model | Serves |
+|---|---|---|
+| L4 fleet | Nemotron-70B **AWQ-INT4**, resident | `lab/extract` |
+| GB10 | nemotron-120b **+ qwen35-a3b** | reasoning, flash, reason-fast |
+| kaiju | catalogue, nothing pinned | embeddings, vision, union pass |
+
+`lab/extract` through its new home: **32 facts / 149.8s / 6-of-6 windows**
+against kaiju's 30 / 386.1s. 2.6x faster, 0% ungrounded identifiers, 1.00
+abstention, and the ~50s reload is gone because it is resident. Same weights as
+ADR-0010 chose, so no quality question was reopened.
+
+One near-miss worth recording: the first `lab/extract` repoint carried the
+**W4A16** repo id — the build that emits `" other other other"` forever and was
+deleted hours earlier. Caught before the gateway restart. The lesson is not
+"be careful"; it is that two 4-bit builds of one model differed only by a
+substring in a config, and one of them is poison. The contract probe would have
+caught it, which is the argument for running the gate on every repoint and not
+only on new lanes.
