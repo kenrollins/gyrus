@@ -80,7 +80,12 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1.3"
+# v1.5 (2026-10-06): + PERSONAL-LAYER SWEEP. Benched on the L4 bake-off (dmz
+# docs/design/l4-fleet-model/bakeoff-2026-10-06): Gemma 4 31B under v1.3 covered the
+# knowledge layer richly but dropped open_loops and Ken-context; v1.5 recovers both
+# (6/6, 43 facts, cron 0/0) and is neutral on the 70B (32 facts, cron 0/0). The
+# open-loop examples are deliberately NOT drawn from the golden windows.
+PROMPT_VERSION = "v1.5"
 
 TIERS = ("procedural", "factual", "preference", "open_loop", "knowledge")
 PROVENANCE = ("ken_said", "observed", "relayed", "assistant_suggested")
@@ -186,6 +191,32 @@ Discernment rules (the whole point — most of the conversation is NOT memory):
   process on Monday" -> {"tier": "open_loop", ..., "expires": "week"}. An
   open_loop with a stated deadline should ALWAYS carry expires. Facts with no
   stated time scope must OMIT the field — never guess an expiry.
+
+BEFORE YOU ANSWER — PERSONAL-LAYER SWEEP. Knowledge is usually the bulk of a
+window, and it is easy to stop there. Do not. If (and only if) a human wrote
+something in the window, make a second pass for each of these and extract every
+one that is present:
+1. OPEN LOOPS — anything left unresolved that someone owes: a question nobody
+   answered, a "find / check / verify / look up / follow up" item, a next step the
+   assistant offered or Ken asked for, a decision Ken deferred ("not sure yet,
+   will keep watching"). Each is its own "open_loop". The 30-day durability bar
+   does NOT apply to open loops: an owed follow-up is worth remembering UNTIL IT
+   IS DONE, however small. Skip it only if the window itself shows it completed.
+   Examples:
+   - The assistant says "I'll confirm the NAS backup finished after tonight's
+     run" -> {"tier": "open_loop", "fact": "Confirm the NAS backup completed after
+     the nightly run", "provenance": "assistant_suggested", "expires": "day"}
+   - Ken writes "still need the vendor's FIPS certificate number" and nobody
+     supplies it -> {"tier": "open_loop", "fact": "Find the vendor's FIPS 140-3
+     certificate number", "provenance": "ken_said"}
+2. KEN'S OWN CONTEXT — why Ken cares and what he is using this for: his employer
+   or team, the project or audience it feeds, a quota, requirement or recurring
+   obligation he has, people he works with. These are "factual" (provenance
+   "ken_said" or "observed"), even inside a knowledge-heavy window.
+3. HOW KEN'S RECURRING WORK IS DONE — the inputs, formats, scripts, schedules or
+   steps of a task he repeats. These are "procedural".
+The automated-output rule still wins: a scheduled or job-harness window returns []
+and gets no sweep.
 
 Return ONLY a JSON array (no markdown fences, no prose):
 [{"tier": "...", "fact": "...", "entities": ["..."], "provenance": "...", "topic": ["..."], "expires": "day|week|month — ONLY when the fact is explicitly time-scoped"}]

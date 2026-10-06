@@ -15,6 +15,17 @@ keep this honest — it's the fast read on where the build actually is.
       exists anywhere in the lineage; eviction is threshold-retirement, not
       time-decay; signal-forge consolidates nightly, not weekly).
 
+- [x] **Extraction prompt v1.5 + lane move to Gemma 4 31B (L4)** — 2026-10-06.
+      bench_lanes.py golden pass (fallback disabled, --no-think), all measured:
+      70B AWQ v1.3 6/6 31 facts 148 s (baseline re-run, matches Aug's 32/150 s);
+      Gemma 4 31B FP8 v1.3 6/6 32 facts but 2 open_loops vs 4 and thin Ken-context;
+      v1.5 (+ PERSONAL-LAYER SWEEP, open-loop durability exemption, two examples
+      NOT drawn from the goldens) → Gemma 6/6 43 facts, cron 0/0, both of the 70B's
+      solid open loops; 70B on v1.5 32 facts, cron 0/0 (neutral). MTP OFF: MTP
+      changed 19/31 facts and dropped the open loops; MTP-off is deterministic
+      (32/32 identical across runs). Artifacts: dmz docs/design/l4-fleet-model/.
+      Deep review of what data gyrus ingests is Ken's next item.
+
 ## M0 — the wire
 - [x] Project skeleton: pyproject, package layout, config, `/data/docker/gyrus/.env`.
 - [x] Mint scoped gateway key `gyrus` (into the .env, 600) — scope:
