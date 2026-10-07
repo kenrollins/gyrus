@@ -1,0 +1,3 @@
+name: gyrus
+version: 1.1.0
+description: "gyrus — Pip's outcome-driven memory (thin stdlib HTTP client of the gyrus service)."

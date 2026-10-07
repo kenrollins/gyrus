@@ -1,13 +1,24 @@
 """gyrus — Hermes MemoryProvider face (thin HTTP client, ADR-0004).
 
-Install: copy this directory to $HERMES_HOME/plugins/gyrus/ on the Hermes
-host (shadesmar; later the Hermes VM) and set in Hermes config.yaml:
+Install: copy this directory (``__init__.py`` + ``plugin.yaml``) to
+$HERMES_HOME/plugins/gyrus/ on the Hermes host (the pip VM) and set in Hermes
+config.yaml:
 
     memory:
       provider: gyrus
 
-Config (env, or `hermes memory setup`):
-    GYRUS_BASE_URL — the gyrus service, default http://10.0.13.11:8000
+Config ($HERMES_HOME/.env, or `hermes memory setup`):
+    GYRUS_BASE_URL  — the gyrus service, default http://10.0.13.11:8000
+    GYRUS_API_TOKEN — bearer for the service (M7); unset = open posture
+
+Hermes contract (v0.21.5+, plugins/AGENTS.md):
+  - both values are read with agent.secret_scope.get_secret, never os.environ:
+    under a multiplexed gateway a profile's .env is NOT in os.environ, and an
+    unscoped read fails closed.
+  - every background thread starts via spawn_context_thread, and each queued
+    write carries the context of the turn that queued it (ctx_bound), so the
+    writer reads the token under that turn's secret scope / HERMES_HOME.
+  - no on-disk state, so nothing is keyed by hermes_home.
 
 Design constraints honored here:
   - prefetch() must return fast: it only reads a cache that queue_prefetch()
@@ -25,7 +36,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import queue
 import threading
 import urllib.error
@@ -33,23 +43,30 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-try:  # bundled-vs-user install path (plugins.memory vs _hermes_user_memory)
-    from agent.memory_provider import MemoryProvider
-except ImportError:  # pragma: no cover
-    from hermes.agent.memory_provider import MemoryProvider  # type: ignore
+from agent.memory_provider import MemoryProvider, ctx_bound, spawn_context_thread
+from agent.secret_scope import UnscopedSecretError, get_secret
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_BASE_URL = "http://10.0.13.11:8000"
 _TIMEOUT_S = 3.0        # writes (queued, off the turn path)
 _RECALL_TIMEOUT_S = 2.5  # the hard deadline Pip's turn will ever wait on recall
 _QUEUE_MAX = 256  # drop oldest beyond this — memory must never OOM the agent
+
+
+def _resolve_base_url() -> str:
+    """GYRUS_BASE_URL from the active profile's secret scope (falls through to
+    os.environ in a single-profile process, exactly as before)."""
+    return (get_secret("GYRUS_BASE_URL", _DEFAULT_BASE_URL) or "").rstrip("/")
 
 
 class GyrusMemoryProvider(MemoryProvider):
     """Always-injected face of the gyrus store."""
 
     def __init__(self) -> None:
-        self._base_url = os.environ.get("GYRUS_BASE_URL", "http://10.0.13.11:8000").rstrip("/")
+        # Construction may run outside any profile scope (discovery, doctor), so
+        # no secret read here; initialize() resolves the real value.
+        self._base_url = _DEFAULT_BASE_URL
         self._session_id = ""
         self._platform = ""
         self._write_only = False  # non-primary contexts skip writes entirely
@@ -69,16 +86,30 @@ class GyrusMemoryProvider(MemoryProvider):
     def is_available(self) -> bool:
         # Config-only check by contract (no network). The URL always has a
         # default, so gyrus is "available" whenever explicitly selected.
-        return bool(self._base_url)
+        try:
+            return bool(_resolve_base_url())
+        except UnscopedSecretError:  # probed outside a profile scope (multiplex)
+            return bool(_DEFAULT_BASE_URL)
+
+    def get_config_schema(self) -> List[Dict[str, Any]]:
+        # Env-only provider: every field carries env_var, so `hermes memory
+        # setup` writes them to $HERMES_HOME/.env and save_config stays a no-op.
+        return [
+            {"key": "base_url", "description": "gyrus service URL",
+             "default": _DEFAULT_BASE_URL, "env_var": "GYRUS_BASE_URL"},
+            {"key": "api_token", "description": "gyrus API bearer token (blank = open posture)",
+             "secret": True, "required": False, "env_var": "GYRUS_API_TOKEN"},
+        ]
 
     # -- lifecycle ------------------------------------------------------------
 
     def initialize(self, session_id: str, **kwargs) -> None:
+        self._base_url = _resolve_base_url()
         self._session_id = session_id
         self._platform = kwargs.get("platform", "")
         # cron/subagent/flush contexts must not pollute Ken's episodic record.
         self._write_only = kwargs.get("agent_context", "primary") != "primary"
-        self._writer = threading.Thread(target=self._writer_loop, name="gyrus-writer", daemon=True)
+        self._writer = spawn_context_thread(self._writer_loop, name="gyrus-writer")
         self._writer.start()
 
     def shutdown(self) -> None:
@@ -120,9 +151,9 @@ class GyrusMemoryProvider(MemoryProvider):
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         """Warm the cache (and the embedding lane) between turns."""
-        threading.Thread(
-            target=self._refresh_cache, args=(query, session_id or self._session_id),
-            name="gyrus-prefetch", daemon=True,
+        spawn_context_thread(
+            self._refresh_cache, args=(query, session_id or self._session_id),
+            name="gyrus-prefetch",
         ).start()
 
     def _fetch_recall(self, query: str, session_id: str, *, timeout: float):
@@ -160,7 +191,8 @@ class GyrusMemoryProvider(MemoryProvider):
             "meta": {},
         }
         try:
-            self._queue.put_nowait({"path": "/v1/turns", "body": payload})
+            self._queue.put_nowait({"path": "/v1/turns", "body": payload,
+                                   "send": ctx_bound(self._request)})
         except queue.Full:
             logger.warning("gyrus write queue full — dropping turn (memory must not block Pip)")
 
@@ -177,7 +209,8 @@ class GyrusMemoryProvider(MemoryProvider):
             return
         sid = urllib.parse.quote(self._session_id, safe="")
         try:
-            self._queue.put_nowait({"path": f"/v1/sessions/{sid}/end", "body": {}})
+            self._queue.put_nowait({"path": f"/v1/sessions/{sid}/end", "body": {},
+                                   "send": ctx_bound(self._request)})
         except queue.Full:
             pass
 
@@ -193,7 +226,9 @@ class GyrusMemoryProvider(MemoryProvider):
             item = self._queue.get()
             if item is None:
                 return
-            self._request("POST", item["path"], item["body"])
+            # Run under the context of the turn that queued it (its secret scope
+            # and HERMES_HOME), not the context the writer was spawned in.
+            item["send"]("POST", item["path"], item["body"])
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None,
                  timeout: float = _TIMEOUT_S) -> Optional[Dict[str, Any]]:
@@ -201,7 +236,13 @@ class GyrusMemoryProvider(MemoryProvider):
         # M7 auth (Fable F3): the service requires a bearer once
         # GYRUS_API_TOKEN is set on both sides. Absent env = the historic
         # open posture, so the provider stays deployable against either.
-        token = os.environ.get("GYRUS_API_TOKEN", "")
+        try:
+            token = get_secret("GYRUS_API_TOKEN", "") or ""
+        except UnscopedSecretError as e:
+            # Multiplexed and no profile scope: fail closed (never fall back to
+            # another profile's token, never send unauthenticated) and degrade.
+            logger.warning("gyrus %s %s skipped: %s", method, path, e)
+            return None
         if token:
             headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(
@@ -216,3 +257,8 @@ class GyrusMemoryProvider(MemoryProvider):
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
             logger.debug("gyrus %s %s failed: %s", method, path, e)
             return None
+
+
+def register(ctx) -> None:
+    """Memory-provider entry point (plugins/memory discovery and plugin doctor)."""
+    ctx.register_memory_provider(GyrusMemoryProvider())
