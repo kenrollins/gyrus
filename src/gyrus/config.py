@@ -33,9 +33,19 @@ class Settings(BaseSettings):
     # Extraction workhorse — see ADR-0010 for why this shape binds to the 70B.
     # (The old "120B lost domain facts" claim is discredited; same ADR.)
     extract_model: str = "lab/extract"
-    # Used when the primary lane is down. lab/reason deliberately sits on
-    # non-kaiju silicon (the GB10), so a kaiju outage can't take both lanes.
-    extract_fallback_model: str = "lab/reason"
+    # Used when the primary lane is down. The fallback deliberately sits on
+    # non-L4, non-kaiju silicon (the GB10), so one outage can't take both
+    # lanes. lab/reason-STRICT, not lab/reason (2026-10-19): same GB10 engine,
+    # but the gateway pins enable_thinking=false on the strict lane. Nothing in
+    # gyrus pinned it, so the fallback had been running a reasoning model
+    # with thinking ON against a JSON-array task. On the GB10 swap day
+    # lab/reason becomes Nemotron 3.5 Super VL at medium-effort thinking —
+    # benched on the golden set at 2/6 windows, 0 facts (dmz gb10-supervl
+    # REPORT); thinking off it extracted 35 facts, slowest window ~280s.
+    # Pinning by LANE (gateway config) rather than by flag means the setting
+    # cannot be forgotten by a caller. Golden pass on today's engine via
+    # lab/reason-strict at 8000 tok / 900s: see TASKS shape-binding log.
+    extract_fallback_model: str = "lab/reason-strict"
     # That silicon is slow on real windows: ADR-0010's addendum measured this
     # lane exceeding the default 300s chat_json ceiling on 4 of 6 golden
     # windows — the safety net failed exactly when it was needed. The lane only
