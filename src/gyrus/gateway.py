@@ -78,6 +78,21 @@ class GatewayError(RuntimeError):
     pass
 
 
+def candidate_models(model: str | None, *, fallback: bool = True) -> list[str]:
+    """The lanes one chat_json call may try, in order.
+
+    Primary first (the requested model, else settings.extract_model), then
+    extract_fallback_model — unless the caller asked for no fallback, or the
+    requested model IS the fallback (never try the same lane twice).
+    """
+    primary = model or settings.extract_model
+    out = [primary] if primary else []
+    fb = settings.extract_fallback_model
+    if fallback and fb and fb != primary:
+        out.append(fb)
+    return out
+
+
 def _headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {settings.litellm_api_key}",
             "Content-Type": "application/json"}
@@ -91,6 +106,7 @@ async def chat_json(
     max_tokens: int = 4000,
     timeout: float = 300.0,
     template_kwargs: dict[str, Any] | None = None,
+    fallback: bool = True,
 ) -> list[dict[str, Any]]:
     """Chat completion whose answer is a JSON array.
 
@@ -118,8 +134,16 @@ async def chat_json(
     thinking on against a structured-JSON task and spends its budget
     deliberating. Exposed for the lane bench, which is the only caller that
     needs to vary it.
+
+    fallback=False gives the call ONE candidate: the model asked for, with no
+    substitute. Measured 2026-10-19 from the gateway ledger: the union pass
+    (a deliberately DIFFERENT engine's second read) was failing over to
+    extract_fallback_model day for day for three weeks — ~110 windows whose
+    "second opinion" was the 120B thinking aloud, merged under the union's
+    name. A substitute defeats a second opinion; the union caller skips
+    instead (see extraction.extract_union).
     """
-    models = [m for m in (model or settings.extract_model, settings.extract_fallback_model) if m]
+    models = candidate_models(model, fallback=fallback)
     responded = False
     body: dict[str, Any] = {
         "temperature": 0.0,

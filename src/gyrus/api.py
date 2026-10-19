@@ -106,6 +106,8 @@ async def metrics() -> "PlainTextResponse":
     format: a client library is overkill for gauges derived from one query."""
     from fastapi.responses import PlainTextResponse
 
+    from . import extraction
+
     pool = await db.get_pool()
     tiers = await pool.fetch(
         "SELECT tier, count(*) AS n FROM memories WHERE retired_at IS NULL GROUP BY tier")
@@ -127,6 +129,9 @@ async def metrics() -> "PlainTextResponse":
     out.append(f'gyrus_memories_retired_total {row["retired"]}')
     out.append(f'gyrus_retrievals_total {row["retrievals"]}')
     out.append(f'gyrus_outcomes_scored_total {row["outcomes"]}')
+    # Process-lifetime counter (resets on recreate): windows extracted without
+    # their second opinion because the union lane was down.
+    out.append(f'gyrus_union_skipped_total {extraction.UNION_SKIPPED}')
     out.append(f'gyrus_last_consolidation_timestamp {row["last_consolidation"] or 0}')
     out.append(f'gyrus_entity_relations {row["entity_relations"]}')
     return PlainTextResponse("\n".join(out) + "\n")

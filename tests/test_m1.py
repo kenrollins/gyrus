@@ -346,3 +346,50 @@ def test_claude_lane_never_corroborates(monkeypatch):
                                              source_key="claude:gemma-forge"))
     assert written == 0        # folded, not inserted
     assert bumps == []         # and NO corroboration bump despite different source_key
+
+
+# --- The second opinion is never answered by the fallback (2026-10-19) -------
+
+def test_candidate_models_fallback_switch(monkeypatch):
+    """The union pass asks for a DIFFERENT engine's read; a substitute from
+    the fallback lane defeats it (measured: ~110 windows answered by
+    lab/reason under the union's name). fallback=False → one candidate."""
+    from gyrus import gateway
+    from gyrus.config import settings
+
+    monkeypatch.setattr(settings, "extract_model", "lab/extract")
+    monkeypatch.setattr(settings, "extract_fallback_model", "lab/reason-strict")
+    assert gateway.candidate_models(None) == ["lab/extract", "lab/reason-strict"]
+    assert gateway.candidate_models("lab/extract-union") == ["lab/extract-union", "lab/reason-strict"]
+    assert gateway.candidate_models("lab/extract-union", fallback=False) == ["lab/extract-union"]
+    # Asking for the fallback lane itself must not try it twice.
+    assert gateway.candidate_models("lab/reason-strict") == ["lab/reason-strict"]
+    # The lane bench blanks the fallback: every lane answers for itself.
+    monkeypatch.setattr(settings, "extract_fallback_model", "")
+    assert gateway.candidate_models("lab/flash") == ["lab/flash"]
+
+
+def test_union_pass_skips_instead_of_substituting(monkeypatch):
+    """A down union lane → the window is extracted on the primary alone,
+    counted as skipped, and the union leg was called with fallback=False."""
+    import asyncio
+
+    from gyrus import extraction, gateway
+    from gyrus.config import settings
+
+    calls = []
+
+    async def fake_extract(messages, *, model=None, fallback=True, **kw):
+        calls.append((model, fallback))
+        if model == settings.extract_union_model:
+            raise gateway.GatewayError("no model answered (tried lab/extract-union)")
+        return [extraction.Fact(tier="factual", fact="Primary fact survives the skip",
+                                entities=[], provenance="observed")]
+
+    monkeypatch.setattr(extraction, "extract", fake_extract)
+    monkeypatch.setattr(extraction, "UNION_SKIPPED", 0)
+    out = asyncio.run(extraction.extract_union([{"role": "user", "content": "hi"}]))
+    assert [f.fact for f in out] == ["Primary fact survives the skip"]
+    assert (settings.extract_union_model, False) in calls
+    assert (None, True) in calls
+    assert extraction.UNION_SKIPPED == 1

@@ -328,7 +328,8 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
 async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = None,
                   max_tokens: int | None = None,
                   timeout: float | None = None,
-                  template_kwargs: dict[str, Any] | None = None) -> list[Fact]:
+                  template_kwargs: dict[str, Any] | None = None,
+                  fallback: bool = True) -> list[Fact]:
     """Run one window through the extraction pass.
 
     max_tokens is exposed for the lane bench: a THINKING model spends the
@@ -360,7 +361,7 @@ async def extract(messages: Iterable[dict[str, Any]], *, model: str | None = Non
     if template_kwargs:
         kw["template_kwargs"] = template_kwargs
     raw = await gateway.chat_json(SYSTEM, f"Conversation window:\n\n{window}",
-                                  model=model, **kw)
+                                  model=model, fallback=fallback, **kw)
     facts = _clean(raw)
     logger.info("extracted %d facts (%d chars in)", len(facts), len(window))
     return facts
@@ -380,16 +381,28 @@ async def extract_union(messages: Iterable[dict[str, Any]]) -> list[Fact]:
     # the window — but the primary's silence must propagate (GatewayError), or
     # the caller stamps the turn extracted having learned nothing. See
     # gateway.chat_json.
+    #
+    # fallback=False on the union leg: the union exists to get a DIFFERENT
+    # engine's read, so it may never be answered by the primary's fallback.
+    # Measured 2026-10-19 (gateway ledger vs this code): with the shared
+    # candidate list, every union-lane failure from 2026-09-20 to 10-06 was
+    # silently answered by lab/reason (the 120B, thinking on) and merged as
+    # the union's facts — ~110 windows. Now a down union lane means the window
+    # is NOT union-checked: logged, counted, and extracted on the primary alone.
     primary, secondary = await asyncio.gather(
         extract(messages),
-        extract(messages, model=settings.extract_union_model) if settings.extract_union_model else _none(),
+        (extract(messages, model=settings.extract_union_model, fallback=False)
+         if settings.extract_union_model else _none()),
         return_exceptions=True,
     )
     if isinstance(primary, BaseException):
         raise primary
     if isinstance(secondary, BaseException):
-        logger.warning("union pass unavailable (%s); continuing on the primary alone",
-                       secondary)
+        global UNION_SKIPPED
+        UNION_SKIPPED += 1
+        logger.warning("union pass SKIPPED — lane %s unavailable (%s); window extracted on"
+                       " the primary alone and is not union-checked (skipped so far: %d)",
+                       settings.extract_union_model, secondary, UNION_SKIPPED)
         secondary = []
     merged: dict[str, Fact] = {f.hash: f for f in primary}
     for f in secondary:
@@ -397,6 +410,12 @@ async def extract_union(messages: Iterable[dict[str, Any]]) -> list[Fact]:
     if len(merged) > len(primary):
         logger.info("union pass added %d facts", len(merged) - len(primary))
     return list(merged.values())
+
+
+# Windows whose union pass was skipped because its lane was down (process
+# lifetime; exposed as gyrus_union_skipped_total). Not a store column: the
+# skip is an operational event, not a property of the facts.
+UNION_SKIPPED = 0
 
 
 async def _none() -> list[Fact]:
