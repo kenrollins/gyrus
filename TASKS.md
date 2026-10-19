@@ -26,6 +26,32 @@ keep this honest — it's the fast read on where the build actually is.
       (32/32 identical across runs). Artifacts: dmz docs/design/l4-fleet-model/.
       Deep review of what data gyrus ingests is Ken's next item.
 
+- [ ] **lab/reason fallback — GB10 swap (dmz handoff 2026-10-19).** Super VL
+      bake-off results + side-by-side sheet built in the container at
+      `/tmp/eval-supervl/` (copy to the gitignored
+      `tools/extraction-eval/goldens/results/supervl-bakeoff-2026-10-17/`
+      — Ken's hand; private). Ken grades → compute keep / wrong-tier rate
+      per engine → recommendation note for dmz (`lab/reason-strict` + longer
+      ceiling vs stay). Config change waits for swap day. journal-035.
+- [x] **BUG: outcome sweeper aborted every pass** — FIXED 2026-10-19 (not yet
+      deployed): zulip vision tool results carry list-shaped content (6 turns,
+      first 2026-08-17); `tool_outcome` regexed over the list → TypeError →
+      the whole `score_pending` pass died at that turn, every 3 min, since
+      ~2026-09-01. Now `content_text` flattens blocks and one turn's failure
+      is one turn's loss. Backlog at fix time: 905 procedural recalls / 380
+      turns pending — expect the first post-deploy passes to be busy.
+- [x] **CHECK: judge (`lab/flash`) zero calls in 30 days** — ANSWERED
+      2026-10-19: same cause; no turn got past `tool_outcome`.
+- [x] **union pass never falls back** — SHIPPED (commit) 2026-10-19:
+      `chat_json(fallback=False)` on the union leg; skipped windows logged +
+      `gyrus_union_skipped_total`. There is no "union-checked" column, so
+      the skip is a log/metric event, not a store mark.
+- [x] **fallback lane → `lab/reason-strict`** — SHIPPED (commit) 2026-10-19,
+      golden pass below. Deploy = recreate, outside the 02:15Z burst.
+- [ ] **CHECK: union-pass provenance 2026-09-20..10-06** — the union lane
+      fell through to `lab/reason` (120B, thinking ON) on ~110 windows;
+      facts merged as the second opinion's. Decide whether to tag/review.
+
 ## M0 — the wire
 - [x] Project skeleton: pyproject, package layout, config, `/data/docker/gyrus/.env`.
 - [x] Mint scoped gateway key `gyrus` (into the .env, 600) — scope:
@@ -333,6 +359,17 @@ keep this honest — it's the fast read on where the build actually is.
   (OpenAI-style). VALIDATED same day: 6/6, 32 facts, 146.8s (20% faster),
   cron 0/0, tier boundary holds (18 knowledge/relayed). New quirk: wraps
   empty results in markdown bold (**[]**) — salvage parser absorbs it.
+
+- 2026-10-19 ~20:20Z (in-container, gyrus key, fallback disabled, prompt
+  v1.5, --max-tokens 8000 --timeout 900): `lab/reason-strict` on today's
+  GB10 engine (Nemotron 3 Super 120B, thinking off by lane): 6/6, 23 facts,
+  141.8s, cron 0/0; slowest window day3-summaries 54.7s. New fallback binding.
+- 2026-10-17 (dmz, bake-off key, no-fallback lanes): lab/reason candidate
+  Nemotron 3.5 Super VL vs incumbent, THINKING OFF, 4000 tok, 300s —
+  incumbent 6/6, 15 facts, 112s; Super VL 5/6 (1 timeout), 35 facts, 793s;
+  Super VL medium-thinking 2/6, 0 facts, 1281s. UNGRADED; see journal-035.
+  Caveat: production fallback runs thinking ON at 8000 tok / 900s, so this
+  pass measured `lab/reason-strict`'s condition, not the deployed lane's.
 
 ## Guardrails to hold the whole way
 - [ ] Never store transcripts as memory (extract first).
