@@ -393,3 +393,37 @@ def test_union_pass_skips_instead_of_substituting(monkeypatch):
     assert (settings.extract_union_model, False) in calls
     assert (None, True) in calls
     assert extraction.UNION_SKIPPED == 1
+
+
+# --- Content blocks must not crash outcome scoring (2026-10-19) --------------
+
+def test_tool_outcome_reads_list_content_blocks():
+    """Pip's zulip vision tool returns content as typed blocks. One such turn
+    at the head of the sweeper's queue raised TypeError and silenced outcome
+    scoring from 2026-09-01 to 10-19. Text blocks are read; images are not
+    evidence either way."""
+    from gyrus import outcomes
+
+    msgs = [
+        {"role": "tool", "content": [{"type": "image_url", "image_url": {"url": "data:..."}},
+                                     {"type": "text", "text": '{"success": true}'}]},
+        {"role": "tool", "content": [{"type": "text", "text": "Traceback (most recent call last)"}]},
+        {"role": "tool", "content": [{"type": "image_url", "image_url": {"url": "x"}}]},
+        {"role": "tool", "content": None},
+        {"role": "assistant", "content": [{"type": "text", "text": "I ran it."}],
+         "tool_calls": [{"function": {"name": "bash", "arguments": "{\"cmd\": \"ls\"}"}}]},
+    ]
+    assert outcomes.tool_outcome(msgs) == (3, 1)
+    act = outcomes.action_text(msgs)
+    assert "I ran it." in act and "bash" in act
+
+
+def test_render_window_flattens_content_blocks():
+    from gyrus import extraction
+
+    out = extraction.render_window([
+        {"role": "user", "content": [{"type": "text", "text": "look at this"},
+                                     {"type": "image_url", "image_url": {"url": "x"}}]},
+        {"role": "assistant", "content": "a chart"},
+    ])
+    assert "[USER]\nlook at this" in out and "image_url" not in out

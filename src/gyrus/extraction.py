@@ -249,6 +249,32 @@ class Fact:
         return hashlib.sha256(norm.encode()).hexdigest()[:32]
 
 
+def content_text(content) -> str:
+    """A message's content as text, whatever shape it arrived in.
+
+    OpenAI-style content is a string OR a list of typed blocks
+    ({"type": "text", "text": ...}, {"type": "image_url", ...}). Pip's zulip
+    vision tool returns the list form; six such turns reached the store from
+    2026-08-17, and the first one in the sweeper's queue (2026-08-31) raised
+    TypeError on the regex below — which aborted score_pending for EVERY
+    turn, every three minutes, until 2026-10-19. Non-text blocks contribute
+    nothing; they are not evidence of success or failure.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, str):
+                parts.append(b)
+            elif isinstance(b, dict) and isinstance(b.get("text"), str):
+                parts.append(b["text"])
+        return "\n".join(parts)
+    return str(content)
+
+
 def render_window(messages: Iterable[dict[str, Any]], *, char_budget: int | None = None) -> str:
     """Flatten a message window for the prompt, inside a character budget.
 
@@ -259,7 +285,9 @@ def render_window(messages: Iterable[dict[str, Any]], *, char_budget: int | None
     budget = char_budget or settings.extract_char_budget
     parts = []
     for m in messages:
-        content = (m.get("content") or "").strip()
+        # Content may be a list of typed blocks (vision tool results); the
+        # same shape that crashed the outcome sweeper. See content_text.
+        content = content_text(m.get("content")).strip()
         if not content:
             continue
         parts.append(f"[{str(m.get('role', 'user')).upper()}]\n{content}")

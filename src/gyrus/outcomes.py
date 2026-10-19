@@ -28,6 +28,7 @@ import logging
 import re
 
 from . import db, gateway
+from .extraction import content_text
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def tool_outcome(messages: list[dict]) -> tuple[int, int]:
     for m in messages:
         if m.get("role") != "tool":
             continue
-        content = m.get("content") or ""
+        content = content_text(m.get("content"))
         if _OK_MARKERS.search(content):
             ok += 1
         elif _FAIL_MARKERS.search(content):
@@ -101,8 +102,9 @@ def action_text(messages: list[dict]) -> str:
     parts = []
     for m in messages:
         if m.get("role") == "assistant":
-            if m.get("content"):
-                parts.append(m["content"])
+            text = content_text(m.get("content"))
+            if text:
+                parts.append(text)
             for tc in m.get("tool_calls") or []:
                 fn = (tc.get("function") or {})
                 parts.append(f"{fn.get('name', '')} {fn.get('arguments', '')}")
@@ -192,9 +194,19 @@ async def score_pending(limit: int = 200) -> dict:
         " JOIN memories m ON m.id=r.memory_id"
         " WHERE r.turn_id IS NOT NULL AND m.tier='procedural'"
         "   AND r.followed_computed_at IS NULL LIMIT $1", limit)
-    total = 0
+    total = failed = 0
     async with pool.acquire() as conn:
         for row in rows:
-            res = await score_turn(conn, row["turn_id"])
+            # One turn's failure is one turn's loss, never the pass's: a single
+            # unscoreable turn at the head of this queue silenced outcome
+            # scoring for seven weeks (2026-09-01..10-19), because the
+            # exception left the loop and the same turn came first next time.
+            try:
+                res = await score_turn(conn, row["turn_id"])
+            except Exception:                               # noqa: BLE001
+                failed += 1
+                logger.exception("outcome scoring failed for turn %s; skipping it this pass",
+                                 row["turn_id"])
+                continue
             total += res.get("scored", 0)
-    return {"turns": len(rows), "outcomes_written": total}
+    return {"turns": len(rows), "outcomes_written": total, "turns_failed": failed}
