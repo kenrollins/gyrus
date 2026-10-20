@@ -33,8 +33,8 @@ keep this honest — it's the fast read on where the build actually is.
       — Ken's hand; private). Ken grades → compute keep / wrong-tier rate
       per engine → recommendation note for dmz (`lab/reason-strict` + longer
       ceiling vs stay). Config change waits for swap day. journal-035.
-- [x] **BUG: outcome sweeper aborted every pass** — FIXED 2026-10-19 (not yet
-      deployed): zulip vision tool results carry list-shaped content (6 turns,
+- [x] **BUG: outcome sweeper aborted every pass** — FIXED 2026-10-19, DEPLOYED
+      2026-10-20 00:21Z (first pass: 200 turns, 57 outcomes, 0 failed): zulip vision tool results carry list-shaped content (6 turns,
       first 2026-08-17); `tool_outcome` regexed over the list → TypeError →
       the whole `score_pending` pass died at that turn, every 3 min, since
       ~2026-09-01. Now `content_text` flattens blocks and one turn's failure
@@ -42,12 +42,12 @@ keep this honest — it's the fast read on where the build actually is.
       turns pending — expect the first post-deploy passes to be busy.
 - [x] **CHECK: judge (`lab/flash`) zero calls in 30 days** — ANSWERED
       2026-10-19: same cause; no turn got past `tool_outcome`.
-- [x] **union pass never falls back** — SHIPPED (commit) 2026-10-19:
+- [x] **union pass never falls back** — SHIPPED 2026-10-19, deployed 10-20:
       `chat_json(fallback=False)` on the union leg; skipped windows logged +
       `gyrus_union_skipped_total`. There is no "union-checked" column, so
       the skip is a log/metric event, not a store mark.
-- [x] **fallback lane → `lab/reason-strict`** — SHIPPED (commit) 2026-10-19,
-      golden pass below. Deploy = recreate, outside the 02:15Z burst.
+- [x] **fallback lane → `lab/reason-strict`** — SHIPPED 2026-10-19, deployed
+      2026-10-20 00:21Z; golden pass below. dmz note: docs/DMZ-NOTE-LAB-REASON-SWAP-2026-10-20.md
 - [ ] **CHECK: union-pass provenance 2026-09-20..10-06** — the union lane
       fell through to `lab/reason` (120B, thinking ON) on ~110 windows;
       facts merged as the second opinion's. Decide whether to tag/review.

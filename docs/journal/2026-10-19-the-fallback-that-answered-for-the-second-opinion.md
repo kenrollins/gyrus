@@ -112,8 +112,12 @@ Ken's call after reading the above, in this order, each on its own commit:
    pass's. The patched functions ran over all six list-content turns in the
    store without error; 29 tests pass.
 
-None of it is deployed yet: that is a container recreate, scheduled around
-`lab/extract`'s nightly burst, and Ken hears first.
+**Deployed 2026-10-20 00:21 UTC** (recreate, two hours before the 02:15
+burst, queue empty). The first sweeper pass ran at 00:23: 200 turns, 57
+outcomes written, 0 failed, and the former poison turn scored like any
+other. The `lab/flash` judge took its first calls in seven weeks (417 →
+623 on the ledger within the pass). `gyrus_union_skipped_total` reads 0.
+The note to dmz is `docs/DMZ-NOTE-LAB-REASON-SWAP-2026-10-20.md`.
 
 ## What this changes for the swap
 
