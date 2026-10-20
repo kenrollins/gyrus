@@ -43,8 +43,14 @@ keep this honest — it's the fast read on where the build actually is.
       Same session, Ken's calls: D8 DONE — health-record gate
       (`is_health_record`, 14 per-drink/per-dose rows retired); provider 1.2.0
       installed on shadesmar (`log=0` warm-ups) and the gateway restarted.
-      NOT done (Ken's call): R7 knowledge-tier purpose; D7 re-tier spot check;
-      C9 lock order; C10–C13.
+      Ken 2026-10-20 (second pass): R7 DECIDED — github + web lanes paused at
+      the extraction gate (`ingest_paused_sources`, thalamus keeps fetching);
+      weekly Zulip digest replaces the browse UI (Pip cron
+      `gyrus-knowledge-digest`, Mon 10:50Z, `tools/pip-cron/`; the ten shown
+      get the browse bump). D7 DONE — docs/RETIER-SPOTCHECK-2026-10-20.md:
+      tier 95% right, durability the leak (10/40); status-line clock +
+      fragment drop gates shipped, 9 retired. C9 DONE — single sorted UPDATE.
+      Still open: C10–C13 (low).
 - [ ] **ADR-0014 control comparison** — `recall_control_every=8` live since
       2026-10-20 01:45Z; `record_turn_outcomes` writes meta.outcome per turn.
       Read with `docker exec gyrus python /app/tools/m3-harness/control_report.py`.

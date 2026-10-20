@@ -364,8 +364,13 @@ async def insights(
     topic: str = Query(default=""),
     days: int = Query(default=30, ge=1, le=3650),
     limit: int = Query(default=40, ge=1, le=200),
+    order: str = Query(default="recent", pattern="^(recent|confidence)$"),
 ) -> dict[str, Any]:
     """Browse what's being gleaned — the knowledge tier, by source/topic/recency.
+
+    `order=confidence` serves the weekly digest (Ken 2026-10-20): the
+    highest-authority new items first, so the ten that get shown are the
+    ten that earn the browse bump.
 
     The "let me SEE the insights" surface (ADR-0006). Reading here IS demand
     (ADR-0008: human browsing is the main knowledge-use pattern and must count
@@ -386,7 +391,8 @@ async def insights(
         f"SELECT id, fact, source_type, source_ref, topic, confidence,"
         f" recall_count, browse_count, created_at FROM memories"
         f" WHERE {' AND '.join(where)}"
-        f" ORDER BY created_at DESC LIMIT ${len(args)}", *args)
+        f" ORDER BY {'confidence DESC, created_at DESC' if order == 'confidence' else 'created_at DESC'}"
+        f" LIMIT ${len(args)}", *args)
     if rows:
         await pool.execute(
             "UPDATE memories SET browse_count = browse_count + 1, last_browsed_at = now()"

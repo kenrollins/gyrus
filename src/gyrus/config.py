@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     # LAN-side, and the MCP face must never ship without one.
     api_token: str = ""
 
+    # --- knowledge ingest (ADR-0006/0007) ---
+    # Ken 2026-10-20 (review R7): lanes that produce volume nobody recalls are
+    # paused at the extraction gate — thalamus keeps fetching (cheap, no
+    # inference), gyrus skips them. Comma-separated source_types. Measured
+    # 30 days before the pause: github 778 facts / 1.1% ever recalled,
+    # web 863 / 0.4%. Re-enable by clearing the list; nothing is lost.
+    ingest_paused_sources: str = "github,web"
+
     # --- consolidation (M2) ---
     # Review D2 (2026-10-20): "ever recalled" was a permanent exemption from
     # eviction. Demand now has to be recent to protect a low-utility memory.

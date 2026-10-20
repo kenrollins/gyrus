@@ -541,3 +541,21 @@ def test_per_drink_and_per_dose_records_are_not_memories():
     ]
     assert all(is_health_record(f) for f in records), [f for f in records if not is_health_record(f)]
     assert not any(is_health_record(f) for f in keep), [f for f in keep if is_health_record(f)]
+
+
+def test_status_lines_get_a_clock_and_fragments_are_dropped():
+    from gyrus.extraction import _clean, is_status_line, is_fragment
+    assert is_status_line("Office lights are on")
+    assert is_status_line("Zulip was reconnecting cleanly again after the recent fix")
+    assert is_status_line("The medication record is untouched.")
+    assert not is_status_line("Ken can turn off the bedroom lights with the command 'Kill the bedroom lights'")
+    assert not is_status_line("The GB10 system has a recurring fault causing it to shut itself off overnight.")
+    assert is_fragment("Clarify what Ken meant by \"ruled\"")
+    assert is_fragment("Clarify which little sound confused something")
+    assert not is_fragment("Determine how Pip should integrate with Kaiju, specifically regarding code sharing and SSH access.")
+    out = _clean([
+        {"tier": "factual", "fact": "Office lights are on", "provenance": "observed"},
+        {"tier": "open_loop", "fact": "Clarify what Ken meant by 'ruled'", "provenance": "assistant_suggested"},
+        {"tier": "open_loop", "fact": "Determine how Pip should integrate with Kaiju regarding SSH access", "provenance": "observed"},
+    ])
+    assert [(f.fact[:10], f.expires) for f in out] == [("Office lig", "day"), ("Determine ", None)]

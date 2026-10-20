@@ -73,9 +73,13 @@ Ken's two calls, same session: the Vitals per-drink and per-dose records
 "do not belong in this" — a deterministic gate (substance + quantity or
 clock time) now drops them at extraction and the 14 in the store were
 retired; and the provider was replaced on shadesmar (1.2.0, `log=0`
-warm-ups) with a gateway restart. Still his to decide: what the knowledge
-tier is for (2% ever recalled, 16 ever browsed); the re-tier spot check;
-the dream-pass lock order.
+warm-ups) with a gateway restart. Later the same day, the last three: the github and web lanes are paused
+at the extraction gate (80% of knowledge volume, under 1% ever recalled)
+and a weekly ten-line Zulip digest replaces the browse UI nobody opened —
+reading it is the demand signal, and a month of silence will be the
+verdict; the re-tier spot check found v1.5's tiers 95% right and
+durability the real leak (10 of 40 were status lines or fragments), now
+gated; and the dream pass commits in one sorted statement.
 
 ## Left as a prediction
 

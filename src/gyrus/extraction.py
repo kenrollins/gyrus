@@ -342,8 +342,39 @@ def is_health_record(fact: str) -> bool:
                 and re.search(_RECORD_QUANTITY, low))
 
 
+# Re-tier spot check 2026-10-20 (docs/RETIER-SPOTCHECK-2026-10-20.md): tier
+# assignment under v1.5 was 95% right; a quarter of the sample was not a
+# memory at all. Two shapes carried most of it: a present-tense status line
+# about a device/connection/record ("office lights are on", "Zulip was
+# reconnecting cleanly again", "the medication record is untouched") and a
+# clarification fragment with no durable referent ("clarify what Ken meant
+# by 'ruled'"). Status gets a one-day clock; fragments are dropped.
+_STATUS_PATTERNS = re.compile(
+    r"^(?:the |ken's |pip's )?(?:office|bedroom|garage|kitchen|foyer|upstairs|downstairs|"
+    r"living room|hallway|porch)?\s*(?:[a-z]+ )?(?:lights?|lamp|fan|thermostat|door|garage door|"
+    r"tv|speaker|zulip|gateway|connection|record|entry|log|watchdog|service|job|container)s?"
+    r"(?: integration| connection)? (?:is|are|was|were) (?:now |currently |still |again )?"
+    r"(?:on|off|open|closed|locked|unlocked|up|down|running|paused|untouched|unchanged|"
+    r"reconnecting|connected|disconnected|working|fixed|back)\b",
+    re.IGNORECASE)
+_FRAGMENT_PATTERNS = re.compile(
+    r"^(?:clarify|confirm|find out|figure out|determine) (?:what|which|whether|if|who) "
+    r"(?:ken|pip|the user|the assistant|something|someone|he|she|it)\b.{0,60}$|"
+    r"\b(?:something|someone|somewhere) (?:confused|said|did|meant)\b|"
+    r"\b(?:confused|said|did|meant) (?:something|someone)\b",
+    re.IGNORECASE)
+
+
+def is_status_line(fact: str) -> bool:
+    return bool(_STATUS_PATTERNS.search(fact.strip()))
+
+
+def is_fragment(fact: str) -> bool:
+    return bool(_FRAGMENT_PATTERNS.search(fact.strip()))
+
+
 def is_transient(fact: str) -> bool:
-    return bool(_TRANSIENT_PATTERNS.search(fact))
+    return bool(_TRANSIENT_PATTERNS.search(fact)) or is_status_line(fact)
 
 
 def _infer_expiry(fact: str) -> str | None:
@@ -368,7 +399,7 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
         fact = " ".join(str(item.get("fact", "")).split())
         if tier not in TIERS or len(fact) < 8:
             continue
-        if tier != "knowledge" and is_health_record(fact):
+        if tier != "knowledge" and (is_health_record(fact) or is_fragment(fact)):
             continue
         prov = str(item.get("provenance", "observed")).strip().lower()
         if prov not in PROVENANCE:

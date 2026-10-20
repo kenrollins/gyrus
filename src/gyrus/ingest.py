@@ -129,6 +129,13 @@ async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int)
         return {"pulled": 0, "error": str(e)}
 
     items = payload["items"]
+    paused = {x.strip() for x in settings.ingest_paused_sources.split(",") if x.strip()}
+    if paused:
+        skipped = sum(1 for it in items if it["source_type"] in paused)
+        if skipped:
+            logger.info("thalamus ingest: %d items skipped from paused lanes %s",
+                        skipped, sorted(paused))
+        items = [it for it in items if it["source_type"] not in paused]
     if not items:
         return {"pulled": 0, "extracted": 0, "cursor": cursor}
 

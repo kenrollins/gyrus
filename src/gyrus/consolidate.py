@@ -178,10 +178,19 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
 
         if commit:
             async with conn.transaction():
-                for m, u in scored:
-                    await conn.execute(
-                        "UPDATE memories SET confidence=$2, consolidated_at=now(), updated_at=now()"
-                        " WHERE id=$1", m["id"], u)
+                # Review C9 (2026-10-20): one statement, ids sorted — a global
+                # lock order every writer agrees on (persist's corroboration
+                # bump uses the same trick). The old per-row loop in utility
+                # order took ~18k locks in effectively random id order and
+                # could deadlock against a live write, rolling back the whole
+                # pass after the reconciler's model calls had already run.
+                ordered = sorted(scored, key=lambda mu: mu[0]["id"])
+                await conn.execute(
+                    "UPDATE memories m SET confidence = v.u, consolidated_at = now(),"
+                    " updated_at = now()"
+                    " FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::float8[]) AS u) v"
+                    " WHERE m.id = v.id",
+                    [m["id"] for m, _ in ordered], [float(u) for _, u in ordered])
                 for keep_id, drop_id, sim in rep.merges:
                     await conn.execute(
                         "UPDATE memories SET corroboration_count = corroboration_count +"
