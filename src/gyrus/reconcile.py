@@ -168,6 +168,10 @@ async def reconcile_pairs(conn, *, max_pairs: int, commit: bool) -> ReconcileRep
             "   AND b.embedding IS NOT NULL"
             "  WHERE a.retired_at IS NULL AND a.embedding IS NOT NULL"
             "    AND a.tier = ANY($1::text[])"
+            # Same economy as consolidate._find_merges: a new pair needs a
+            # new row on one side. 30 days keeps the recent backlog in reach;
+            # older pairs are the band tool's job (tools/store-audit).
+            "    AND a.created_at > now() - interval '30 days'"
             ") SELECT a_id, b_id, sim FROM nn WHERE rn = 1"
             "   AND sim >= $2 AND sim < $3 ORDER BY sim DESC LIMIT $4",
             tiers, PAIR_FLOOR, BLIND_MERGE, share)

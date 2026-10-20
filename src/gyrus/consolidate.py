@@ -39,6 +39,7 @@ RECENCY_PENALTY_PER_YEAR = 0.20        # untouched memories fade; demand/corrobo
 EVICT_THRESHOLD = 0.33                 # below this, after a fair chance, it's a candidate
 EVICT_MIN_AGE_DAYS = 21                # "fair chance" — don't retire the freshly-written
 NEAR_DUP_COSINE = 0.97                 # F5: merge, don't hoard
+MERGE_LOOKBACK_DAYS = 3                # only newly written rows can create a near-dup
 OUTCOME_MIN_SAMPLES = 3                # gemma-forge required 5; don't let one noisy turn move confidence
 
 _ANCHOR = ("ken", "dell", "obsidian", "pip", "hermes", "gyrus", "kaiju", "federal")
@@ -218,6 +219,12 @@ async def _find_merges(conn) -> list:
 
     Exact scan (no ANN — F2). Bounded: only compares within tier, only the
     nearest neighbour per memory, only pairs above NEAR_DUP_COSINE.
+
+    2026-10-20: the a-side is now only memories written in the last
+    MERGE_LOOKBACK_DAYS. The full 18k x 18k self-join found 0 merges every
+    night since 2026-08-16 (write-time dedupe refuses >= 0.93) while costing
+    the bulk of a ~30-minute pass; a near-dup can only appear when something
+    is WRITTEN, so scanning the new rows against the store is the same test.
     """
     rows = await conn.fetch(
         "WITH nn AS ("
@@ -229,8 +236,9 @@ async def _find_merges(conn) -> list:
         "    ON b.id <> a.id AND b.tier = a.tier AND b.retired_at IS NULL"
         "   AND b.embedding IS NOT NULL"
         "  WHERE a.retired_at IS NULL AND a.embedding IS NOT NULL"
+        "    AND a.created_at > now() - ($2 || ' days')::interval"
         ") SELECT a_id, a_c, a_r, b_id, b_c, b_r, sim FROM nn"
-        " WHERE rn = 1 AND sim >= $1", NEAR_DUP_COSINE)
+        " WHERE rn = 1 AND sim >= $1", NEAR_DUP_COSINE, str(MERGE_LOOKBACK_DAYS))
     seen: set[int] = set()
     merges = []
     for r in rows:

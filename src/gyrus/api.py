@@ -290,6 +290,18 @@ async def prefetch(
     loggable = bool(log) and bool(session_id) and not is_cron
     withheld = loggable and retrieval.is_control(session_id, q)
     async with pool.acquire() as conn:
+        if loggable:
+            # Server-side guard for providers that predate `log=0`: the same
+            # (session, query) logged within the last two minutes is the
+            # post-turn warm-up, not a second recall (review D9). The first
+            # fetch was already logged and linked; this one would be
+            # attributed to the NEXT turn.
+            loggable = not await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM memory_retrievals"
+                " WHERE session_id=$1 AND query=$2"
+                "   AND retrieved_at > now() - interval '120 seconds')",
+                session_id, q[:2000])
+            withheld = withheld and loggable
         recalls = await retrieval.search(conn, q, k=k or None)
         if loggable:
             await retrieval.log_retrievals(conn, recalls, query=q, session_id=session_id,
