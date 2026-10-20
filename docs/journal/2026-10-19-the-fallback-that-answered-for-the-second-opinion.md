@@ -134,3 +134,27 @@ The facts themselves stay out of git. The three result files and the
 side-by-side sheet live in the container until Ken copies them to the
 gitignored goldens tree; the sheet builder (`compare_sheet.py`) is the only
 new thing in the repo.
+
+## The grades, and what precision hides
+
+Ken declined the sheet — fairly: "that's what I have you for" — so the
+grading was done here, every fact against its own golden window, with seven
+soft calls flagged for him. The incumbent scored 15 of 15 KEEP, 0 wrong
+tier. The candidate scored 20 KEEP, 12 WRONG-TIER, 3 DROP of 35: a 57%
+keep-rate, 91% keep-or-retier.
+
+The incumbent's perfect score is the interesting number. Across the four
+real windows it produced no fact about Ken at all — not his weekly
+obligation, not a colleague, not an address, not an owed follow-up — and
+one fact from a window holding a five-point panel summary. It is precise
+because it is timid. The candidate found the personal layer every time and
+filed every conference claim under the wrong tier: twelve facts, all
+`factual/ken_said` where the GATE says `knowledge/relayed`. One mistake,
+made systematically. That is a prompt-compliance failure a re-tier pass can
+catch; the incumbent's silence cannot be caught by anything.
+
+So the verdict to dmz: the fallback stays on `lab/reason-strict` after the
+swap, re-benched at 8,000 / 900 s on the new engine, with gyrus owning a
+GATE re-check for the fallback's output. The extra facts were not noise.
+They were mis-filed.
+

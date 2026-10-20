@@ -30,9 +30,17 @@ keep this honest — it's the fast read on where the build actually is.
       bake-off results + side-by-side sheet built in the container at
       `/tmp/eval-supervl/` (copy to the gitignored
       `tools/extraction-eval/goldens/results/supervl-bakeoff-2026-10-17/`
-      — Ken's hand; private). Ken grades → compute keep / wrong-tier rate
-      per engine → recommendation note for dmz (`lab/reason-strict` + longer
-      ceiling vs stay). Config change waits for swap day. journal-035.
+      — Ken's hand; private). GRADED 2026-10-20 (Claude, 7 soft calls for Ken):
+      incumbent 15/15 keep (0 personal-layer facts); Super VL 20K/12W/3D of 35
+      (all W = conference content filed factual instead of knowledge).
+      Verdict in docs/DMZ-NOTE-LAB-REASON-SWAP-2026-10-20.md: stay on
+      lab/reason-strict. journal-035.
+- [ ] **After the GB10 swap: re-bench `lab/reason-strict`** at 8000/900 on the
+      golden set — require 6/6 inside 900s, cron 0/0; raise
+      `extract_fallback_timeout` if conference-cleanup still times out.
+- [ ] **GATE re-check for fallback output** — the candidate mis-tiers ~1/3 of
+      conference content as factual/ken_said; a post-extraction re-tier
+      (relayed conference claims → knowledge) would catch it. Scope it.
 - [x] **BUG: outcome sweeper aborted every pass** — FIXED 2026-10-19, DEPLOYED
       2026-10-20 00:21Z (first pass: 200 turns, 57 outcomes, 0 failed): zulip vision tool results carry list-shaped content (6 turns,
       first 2026-08-17); `tool_outcome` regexed over the list → TypeError →
