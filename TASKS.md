@@ -40,8 +40,11 @@ keep this honest — it's the fast read on where the build actually is.
       stamp + ORDER BY; C3 per-family candidate pools; C4 judge fallback off,
       judge-None = no credit; C5 fenced `[]` is an answer; C6 graph cursor on
       (updated_at,id); C7 firehose gate fails closed; C8 dash tokens.
+      Same session, Ken's calls: D8 DONE — health-record gate
+      (`is_health_record`, 14 per-drink/per-dose rows retired); provider 1.2.0
+      installed on shadesmar (`log=0` warm-ups) and the gateway restarted.
       NOT done (Ken's call): R7 knowledge-tier purpose; D7 re-tier spot check;
-      D8 Vitals-record gate; C9 lock order; C10–C13.
+      C9 lock order; C10–C13.
 - [ ] **ADR-0014 control comparison** — `recall_control_every=8` live since
       2026-10-20 01:45Z; `record_turn_outcomes` writes meta.outcome per turn.
       Read with `docker exec gyrus python /app/tools/m3-harness/control_report.py`.

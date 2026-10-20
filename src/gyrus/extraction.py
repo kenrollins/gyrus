@@ -321,6 +321,27 @@ _TRANSIENT_PATTERNS = re.compile(
 OPEN_LOOP_DEFAULT_DAYS = 45
 
 
+# Ken, 2026-10-20: "vitals per drink records do not belong in this." A
+# consumption or dose EVENT — a substance with a quantity or a clock time —
+# is a record the Vitals app already holds, not a memory. The durable layer
+# underneath ("alcohol correlates with lower HRV for Ken", "Ken is tracking
+# caffeine") has no quantity-at-a-time shape and passes.
+_RECORD_VERB = r"\b(had|has|drank|drinks|drinking|consumed|consuming|took|taking|logged|log|ate|eating)\b"
+_RECORD_SUBSTANCE = (r"\b(beers?|wine|whiskey|whisky|rum|vodka|gin|bourbon|scotch|cocktails?|pilsner|ipa|"
+                     r"lager|bock|ale|drinks?|glass(?:es)? of|bottles? of|cans? of|melatonin|hydroxyzine|"
+                     r"ibuprofen|tylenol|advil|mg|capsules?|tablets?|pills?|caffeine|coffee|espresso|coke)\b")
+_RECORD_QUANTITY = (r"(\b\d+(?:\.\d+)? ?(?:oz|ounces?|ml|mg|fluid ounces?)\b|\(\d+\)|\b(?:a|one|two|three|\d+) "
+                    r"(?:small |large )?(?:can|cans|glass|glasses|bottle|bottles|cup|cups|capsule|capsules|"
+                    r"tablet|tablets|pill|pills|beer|beers|drink|drinks)\b|"
+                    r"\b(?:at|around|from) \d{1,2}(?::\d{2})? ?(?:am|pm|a\.m\.|p\.m\.)?\b)")
+
+
+def is_health_record(fact: str) -> bool:
+    low = fact.lower()
+    return bool(re.search(_RECORD_VERB, low) and re.search(_RECORD_SUBSTANCE, low)
+                and re.search(_RECORD_QUANTITY, low))
+
+
 def is_transient(fact: str) -> bool:
     return bool(_TRANSIENT_PATTERNS.search(fact))
 
@@ -346,6 +367,8 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
         tier = str(item.get("tier", "")).strip().lower()
         fact = " ".join(str(item.get("fact", "")).split())
         if tier not in TIERS or len(fact) < 8:
+            continue
+        if tier != "knowledge" and is_health_record(fact):
             continue
         prov = str(item.get("provenance", "observed")).strip().lower()
         if prov not in PROVENANCE:

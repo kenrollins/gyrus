@@ -518,3 +518,26 @@ def test_reconciler_pair_budget_is_split_by_family():
     assert "procedural" in reconcile.RECONCILE_TIERS
     assert set(reconcile.PERSONAL_TIERS) == {"factual", "preference", "procedural", "open_loop"}
     assert reconcile.TIER_RANK["procedural"] > reconcile.TIER_RANK["factual"] > reconcile.TIER_RANK["open_loop"]
+
+
+def test_per_drink_and_per_dose_records_are_not_memories():
+    from gyrus.extraction import is_health_record
+    records = [
+        "Ken had one beer at 4:05.",
+        "Ken took a 10mg sleep3 melatonin.",
+        "Consumed two ounces of Chattanooga whiskey at 5 p.m.",
+        "Ken consumed 6oz of rum from 7pm to 10pm on the night of Sep 24",
+        "Ken took one 25 mg capsule of hydroxyzine Pam anti-itch medicine on 10/13",
+        "Ken is drinking a Groelsch Agrox Pilsner (11.2 fluid ounces)",
+        "Ken logged that he has (2) Dos Equis bottles of beer",
+        "Log a can of Coke Zero at 5.55 in the Vitals app",
+    ]
+    keep = [
+        "Alcohol consumption correlates with higher resting heart rate and lower HRV for Ken",
+        "Ken is using the Vitals app to track health metrics and is starting to track caffeine intake.",
+        "The correction API appends a third drink instead of replacing a duplicate in the Vitals write path",
+        "Ken's usual bedtime is 10:30",
+        "When fixing a vitals app entry, correct the existing entry directly rather than creating a duplicate.",
+    ]
+    assert all(is_health_record(f) for f in records), [f for f in records if not is_health_record(f)]
+    assert not any(is_health_record(f) for f in keep), [f for f in keep if is_health_record(f)]

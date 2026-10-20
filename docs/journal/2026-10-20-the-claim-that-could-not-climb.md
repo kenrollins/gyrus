@@ -69,9 +69,13 @@ Two recreates, 36 tests, all of the review's load-bearing findings:
   `(updated_at, id)` ahead of the 20,000-row cliff; the firehose gate holds
   its cursor when the embedder is down.
 
-Not done, by Ken's call to make: what the knowledge tier is for (2% ever
-recalled, 16 ever browsed); the Vitals per-drink records as memory; the
-re-tier spot check; the dream-pass lock order.
+Ken's two calls, same session: the Vitals per-drink and per-dose records
+"do not belong in this" — a deterministic gate (substance + quantity or
+clock time) now drops them at extraction and the 14 in the store were
+retired; and the provider was replaced on shadesmar (1.2.0, `log=0`
+warm-ups) with a gateway restart. Still his to decide: what the knowledge
+tier is for (2% ever recalled, 16 ever browsed); the re-tier spot check;
+the dream-pass lock order.
 
 ## Left as a prediction
 
