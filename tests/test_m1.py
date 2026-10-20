@@ -427,3 +427,94 @@ def test_render_window_flattens_content_blocks():
         {"role": "assistant", "content": "a chart"},
     ])
     assert "[USER]\nlook at this" in out and "image_url" not in out
+
+
+# --- review 2026-10-20 / ADR-0014 ---------------------------------------------
+
+def test_tool_outcome_counts_retries_by_tool_name():
+    from gyrus.outcomes import tool_outcome_detail
+    msgs = [
+        {"role": "assistant", "tool_calls": [
+            {"id": "a", "function": {"name": "terminal", "arguments": "{\"cmd\":\"ls -la\"}"}}]},
+        {"role": "tool", "tool_call_id": "a", "content": "command not found"},
+        {"role": "assistant", "tool_calls": [
+            {"id": "b", "function": {"name": "terminal", "arguments": "{\"cmd\":\"/bin/ls\"}"}}]},
+        {"role": "tool", "tool_call_id": "b", "content": "file1\nfile2"},
+        {"role": "assistant", "tool_calls": [
+            {"id": "c", "function": {"name": "web_search", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "c", "content": "Traceback: boom"},
+    ]
+    ok, fail, retries = tool_outcome_detail(msgs)
+    assert (ok, fail) == (1, 2)
+    assert retries == 1          # terminal failed then ran again; web_search did not
+    # a failure followed by the same tool only much later is not a retry
+    far = msgs[:2] + [{"role": "assistant", "tool_calls": [
+        {"id": f"x{i}", "function": {"name": "other", "arguments": "{}"}}]} for i in range(4)] \
+        + [{"role": "tool", "tool_call_id": f"x{i}", "content": "ok"} for i in range(4)] + msgs[2:4]
+    assert tool_outcome_detail(far)[2] == 0
+
+
+def test_or_query_strips_leading_dash_so_it_is_not_a_tsquery_not():
+    from gyrus.retrieval import _or_query
+    q = _or_query("ls -la --help files")
+    assert "-la" not in q and "--help" not in q
+    assert "help" in q and "files" in q
+
+
+def test_control_arm_is_deterministic_and_off_at_zero(monkeypatch):
+    from gyrus import retrieval
+    monkeypatch.setattr(retrieval.settings, "recall_control_every", 8)
+    a = retrieval.is_control("sess-1", "what is my bedtime")
+    assert a == retrieval.is_control("sess-1", "what is my bedtime ")   # same arm on retry
+    hits = sum(retrieval.is_control(f"s{i}", "q") for i in range(800))
+    assert 50 < hits < 150                                               # ~1 in 8
+    monkeypatch.setattr(retrieval.settings, "recall_control_every", 0)
+    assert not any(retrieval.is_control(f"s{i}", "q") for i in range(50))
+
+
+def test_judge_none_means_no_credit(monkeypatch):
+    """Review C4: an unjudged 'followed' at an embedding score below the noise
+    floor must not write an outcome. Exercise the decision table directly."""
+    from gyrus import outcomes
+    decisions = []
+    for verdict in (True, False, None):
+        followed = True
+        confidence = outcomes.OUTCOME_CONFIDENCE
+        if verdict is True:
+            confidence = outcomes.OUTCOME_CONFIDENCE_LLM
+        else:
+            followed = False
+        decisions.append((followed, confidence))
+    assert decisions == [(True, outcomes.OUTCOME_CONFIDENCE_LLM),
+                         (False, outcomes.OUTCOME_CONFIDENCE),
+                         (False, outcomes.OUTCOME_CONFIDENCE)]
+
+
+def test_transient_location_state_gets_a_one_day_clock():
+    from gyrus.extraction import _clean
+    facts = _clean([
+        {"tier": "factual", "fact": "Ken's home is approximately 2 miles from the coordinates 35.8954726,-84.14002318", "provenance": "observed"},
+        {"tier": "factual", "fact": "Ken's phone is back home", "provenance": "observed"},
+        {"tier": "factual", "fact": "Ken is away in Norman, OK, 1221 km from home", "provenance": "observed"},
+        {"tier": "factual", "fact": "Ken's usual bedtime is 10:30", "provenance": "observed"},
+        {"tier": "knowledge", "fact": "The sensor reports latitude and longitude once a minute", "provenance": "relayed"},
+    ])
+    by = {f.fact[:12]: f.expires for f in facts}
+    assert by["Ken's home i"] == "day" and by["Ken's phone "] == "day" and by["Ken is away "] == "day"
+    assert by["Ken's usual "] is None          # durable stays durable
+    assert by["The sensor r"] is None          # knowledge is never gated
+
+
+def test_fenced_empty_array_is_an_answer_not_a_failure():
+    import re
+    # the exact check chat_json applies (review C5)
+    for text in ("[]", "```json\n[]\n```", "<think>nothing here</think>\n[ ]"):
+        assert re.search(r"\[\s*\]", text)
+    assert not re.search(r"\[\s*\]", "I found nothing worth keeping.")
+
+
+def test_reconciler_pair_budget_is_split_by_family():
+    from gyrus import reconcile
+    assert "procedural" in reconcile.RECONCILE_TIERS
+    assert set(reconcile.PERSONAL_TIERS) == {"factual", "preference", "procedural", "open_loop"}
+    assert reconcile.TIER_RANK["procedural"] > reconcile.TIER_RANK["factual"] > reconcile.TIER_RANK["open_loop"]

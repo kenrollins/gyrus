@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import db
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
         rows = await conn.fetch(
             "SELECT id, tier, fact, entities, provenance, confidence,"
             " corroboration_count, recall_count, browse_count, created_at,"
-            " event_at, embedding IS NOT NULL AS has_vec"
+            " event_at, last_recalled_at, embedding IS NOT NULL AS has_vec"
             " FROM memories WHERE retired_at IS NULL")
         # M3 credit assignment: true ground truth for the procedural tier.
         # AVG(outcome_value * outcome_confidence) over scored retrievals per
@@ -147,8 +148,18 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
             elif u < m["confidence"] - 0.02:
                 rep.confidence_lowered += 1
             age_days = (datetime.now(timezone.utc) - m["created_at"]).days
-            if u < EVICT_THRESHOLD and age_days >= EVICT_MIN_AGE_DAYS \
-                    and m["recall_count"] == 0 and m["corroboration_count"] <= 1:
+            # Review D2 (2026-10-20): `recall_count == 0` made one recall a
+            # permanent exemption — the procedural memories the M3 harness
+            # falsified in August (utility 0.215) were still live in October.
+            # Two ways out now: (a) earned signal says it is bad (outcome
+            # credit below threshold) — ground truth beats demand; (b) proxy
+            # utility is low AND nobody has asked for it within the window.
+            recent = m["last_recalled_at"] is not None and (
+                datetime.now(timezone.utc) - m["last_recalled_at"]
+                < timedelta(days=settings.evict_recall_window_days))
+            earned_bad = m["id"] in credit
+            if u < EVICT_THRESHOLD and age_days >= EVICT_MIN_AGE_DAYS and (
+                    earned_bad or (not recent and m["corroboration_count"] <= 1)):
                 rep.evict_candidates.append((m, u))
 
         scored.sort(key=lambda mu: -mu[1])
@@ -183,8 +194,9 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
                     await conn.execute(
                         "UPDATE memories SET retired_at=now(),"
                         " retired_reason=$2 WHERE id=$1", m["id"],
-                        f"low utility {u:.2f} < {EVICT_THRESHOLD}, no recall/corroboration after "
-                        f"{(datetime.now(timezone.utc) - m['created_at']).days}d")
+                        f"low utility {u:.3f} < {EVICT_THRESHOLD}"
+                        f"{' (outcome credit)' if m['id'] in credit else ', no recent recall/corroboration'}"
+                        f" after {(datetime.now(timezone.utc) - m['created_at']).days}d")
 
     md = _render(rep, committed=commit)
     if report_dir:

@@ -44,3 +44,11 @@ signal-forge already proved out in a non-STIG domain.
   tool-success-on-recall climb over sessions? If yes, the thesis holds.
 - Honesty guardrail: a preference must never be scored as if it had procedural
   ground truth. Confidently-wrong preference memories are the failure mode.
+
+## Addendum 2026-10-20 (ADR-0014)
+
+The consequence "does Pip's tool-success-on-recall climb over sessions?" was
+measured for two months and found unobservable: the success rate starts near
+the ceiling and the credit saturates at 1.0 after three samples. The tiering
+decision stands; the *measurement* moves to a withheld-recall control and a
+graded-precision number. See ADR-0014 and `docs/REVIEW-2026-10-20.md` §2.

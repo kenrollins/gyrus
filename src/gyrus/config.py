@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     api_token: str = ""
 
     # --- consolidation (M2) ---
+    # Review D2 (2026-10-20): "ever recalled" was a permanent exemption from
+    # eviction. Demand now has to be recent to protect a low-utility memory.
+    evict_recall_window_days: int = 45
     # The dream sweeper runs a committed consolidation whenever the store's
     # max(consolidated_at) is older than this. 0 disables (manual only).
     # Restart-proof: cadence is read from the store, not process uptime.
@@ -108,6 +111,14 @@ class Settings(BaseSettings):
 
     # --- retrieval ---
     recall_k: int = 5                  # memories injected per turn
+    # ADR-0014: the control arm. 1 in N eligible prefetches (never cron, never
+    # warm-ups, never the MCP face) is computed and logged but NOT returned, so
+    # served turns can be compared with withheld ones on retries/failures. 0
+    # disables once the comparison is significant.
+    recall_control_every: int = 8
+    # Entities tagged on more than this share of live memories ("ken", "pip")
+    # say nothing about relevance and are ignored by the graph leg (review D3).
+    graph_entity_df_cap: float = 0.05
     recall_pool: int = 40              # candidates per leg before fusion
     semantic_floor: float = 0.45       # min cosine; below this is not "related"
     recall_embed_timeout: float = 1.2  # semantic leg's own deadline; miss it, ship 2 legs

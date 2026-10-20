@@ -38,6 +38,7 @@ OUTCOME_FOLLOWED_OK = 1.0
 OUTCOME_FOLLOWED_FAIL = -0.3
 OUTCOME_CONFIDENCE = 0.8        # embedding-only
 OUTCOME_CONFIDENCE_LLM = 0.95   # embedding + LLM judge agree
+RETRY_WINDOW = 3                # a failed tool re-called within this many calls = retry
 
 # M3's "LLM tip_followed judge (temp 0)" — the second leg the module docstring
 # promised. Runs ONLY on candidates the embedding leg already flagged as
@@ -61,7 +62,7 @@ async def judge_followed(fact: str, action: str) -> bool | None:
         objs = await gateway.chat_json(
             FOLLOW_JUDGE_SYSTEM,
             f"Tip:\n{fact}\n\nAction log:\n{action[:4000]}",
-            model=settings.outcome_judge_model, max_tokens=500)
+            model=settings.outcome_judge_model, max_tokens=500, fallback=False)
     except gateway.GatewayError:
         return None
     for o in objs:
@@ -78,18 +79,44 @@ _OK_MARKERS = re.compile(r'"success"\s*:\s*true', re.IGNORECASE)
 
 def tool_outcome(messages: list[dict]) -> tuple[int, int]:
     """(successes, failures) across a turn's tool-result messages."""
+    ok, fail, _ = tool_outcome_detail(messages)
+    return ok, fail
+
+
+def tool_outcome_detail(messages: list[dict]) -> tuple[int, int, int]:
+    """(successes, failures, retries) for a turn.
+
+    A RETRY is a tool failing and the same tool being called again later in
+    the turn — the observable cost of missing or wrong memory even when the
+    turn ends in success (ADR-0014). Tool names come from the assistant's
+    tool_calls (id -> function.name); a tool result whose id is unknown is
+    counted under '?' so it can still pair with a later unknown.
+    """
+    names: dict[str, str] = {}
+    seq: list[tuple[str, bool]] = []      # (tool name, ok) in turn order
     ok = fail = 0
     for m in messages:
+        if m.get("role") == "assistant":
+            for tc in m.get("tool_calls") or []:
+                fn = (tc.get("function") or {})
+                if tc.get("id"):
+                    names[str(tc["id"])] = str(fn.get("name") or "?")
+            continue
         if m.get("role") != "tool":
             continue
         content = content_text(m.get("content"))
-        if _OK_MARKERS.search(content):
-            ok += 1
-        elif _FAIL_MARKERS.search(content):
-            fail += 1
-        else:
-            ok += 1     # a tool that returned content and no error reads as ok
-    return ok, fail
+        good = bool(_OK_MARKERS.search(content)) or not _FAIL_MARKERS.search(content)
+        ok += good
+        fail += not good
+        seq.append((names.get(str(m.get("tool_call_id") or ""), "?"), good))
+    # Same tool within the next RETRY_WINDOW calls: a 75-call turn with one
+    # early terminal failure is not 74 retries (first cut over-counted —
+    # 5,725 "retries" across 1,600 historical turns).
+    retries = 0
+    for i, (name, good) in enumerate(seq):
+        if not good and any(n == name for n, _ in seq[i + 1:i + 1 + RETRY_WINDOW]):
+            retries += 1
+    return ok, fail, retries
 
 
 def action_text(messages: list[dict]) -> str:
@@ -115,24 +142,41 @@ async def score_turn(conn, turn_id: int) -> dict:
     """Write procedural outcomes for one completed turn. Returns a summary."""
     turn = await conn.fetchrow(
         "SELECT id, session_id, messages FROM episodic_turns WHERE id=$1", turn_id)
+
+    async def _done(reason: str) -> dict:
+        # Review C2 (2026-10-20): an early return used to leave the turn's
+        # rows pending forever, and score_pending's unordered LIMIT 200 would
+        # eventually return only such dead turns — the thesis signal stopping
+        # a second time, with turns_failed: 0. Every exit stamps.
+        await conn.execute(
+            "UPDATE memory_retrievals SET followed_llm=false, followed_computed_at=now()"
+            " WHERE turn_id=$1 AND followed_computed_at IS NULL", turn_id)
+        return {"turn_id": turn_id, "scored": 0, "reason": reason}
+
     if not turn or not turn["messages"]:
-        return {"turn_id": turn_id, "scored": 0, "reason": "no messages"}
+        return await _done("no messages")
     messages = turn["messages"] if isinstance(turn["messages"], list) \
         else json.loads(turn["messages"])
 
-    ok, fail = tool_outcome(messages)
+    ok, fail, retries = tool_outcome_detail(messages)
     if ok + fail == 0:
-        return {"turn_id": turn_id, "scored": 0, "reason": "no tool activity"}
+        return await _done("no tool activity")
     success_rate = ok / (ok + fail)
+
+    # ADR-0014: withheld rows were never shown, so they carry no follow
+    # signal. Stamp them out of the queue before looking at the served ones.
+    await conn.execute(
+        "UPDATE memory_retrievals SET followed_llm=false, followed_computed_at=now()"
+        " WHERE turn_id=$1 AND withheld AND followed_computed_at IS NULL", turn_id)
 
     # Procedural memories recalled for this turn, still unscored.
     recalls = await conn.fetch(
         "SELECT r.id, r.memory_id, m.fact, m.embedding IS NOT NULL AS has_vec"
         " FROM memory_retrievals r JOIN memories m ON m.id = r.memory_id"
-        " WHERE r.turn_id=$1 AND m.tier='procedural'"
+        " WHERE r.turn_id=$1 AND m.tier='procedural' AND NOT r.withheld"
         "   AND r.followed_computed_at IS NULL", turn_id)
     if not recalls:
-        return {"turn_id": turn_id, "scored": 0, "reason": "no unscored procedural recalls"}
+        return await _done("no unscored procedural recalls")
 
     act = action_text(messages)
     act_vec = gateway.to_pgvector((await gateway.embed([act]))[0]) if act else None
@@ -150,8 +194,12 @@ async def score_turn(conn, turn_id: int) -> dict:
             verdict = await judge_followed(r["fact"], act)
             if verdict is True:
                 confidence = OUTCOME_CONFIDENCE_LLM
-            elif verdict is False:
-                followed = False        # embedding false-positive, corrected
+            else:
+                # False: embedding false-positive, corrected. None: the judge
+                # could not answer — and the embedding leg alone sits below
+                # the noise floor (61% of all scored rows clear 0.55, review
+                # C4), so an unjudged "followed" is not evidence. No credit.
+                followed = False
         if not followed:
             # No evidence this memory drove the action → no outcome signal about it.
             await conn.execute(
@@ -166,10 +214,47 @@ async def score_turn(conn, turn_id: int) -> dict:
             r["id"], value, confidence, followed_emb,
             confidence == OUTCOME_CONFIDENCE_LLM)
         scored += 1
-    logger.info("outcomes turn %s: tools %d/%d ok, %d procedural recalls scored",
-                turn_id, ok, ok + fail, scored)
+    logger.info("outcomes turn %s: tools %d/%d ok, %d retries, %d procedural recalls scored",
+                turn_id, ok, ok + fail, retries, scored)
     return {"turn_id": turn_id, "scored": scored, "tool_ok": ok, "tool_fail": fail,
-            "success_rate": round(success_rate, 2), "recalls": len(recalls)}
+            "retries": retries, "success_rate": round(success_rate, 2),
+            "recalls": len(recalls)}
+
+
+async def record_turn_outcomes(limit: int = 200) -> dict:
+    """ADR-0014: every completed, non-cron turn gets its tool outcome written
+    to meta->'outcome' = {ok, fail, retries, served, withheld}, whether or
+    not a procedural memory was involved. This is the control comparison's
+    denominator; score_pending only sees turns with procedural recalls.
+    `served`/`withheld` count the retrieval rows linked to the turn.
+    """
+    pool = await db.get_pool()
+    rows = await pool.fetch(
+        "SELECT id, messages,"
+        "  (SELECT count(*) FROM memory_retrievals r WHERE r.turn_id=t.id AND NOT r.withheld) AS served,"
+        "  (SELECT count(*) FROM memory_retrievals r WHERE r.turn_id=t.id AND r.withheld) AS withheld"
+        " FROM episodic_turns t"
+        " WHERE (meta->'outcome') IS NULL AND created_at < now() - interval '5 minutes'"
+        "   AND COALESCE(platform, '') <> 'cron'"
+        " ORDER BY id DESC LIMIT $1", limit)
+    written = 0
+    async with pool.acquire() as conn:
+        for t in rows:
+            msgs = t["messages"]
+            if isinstance(msgs, str):
+                try:
+                    msgs = json.loads(msgs)
+                except json.JSONDecodeError:
+                    msgs = []
+            ok, fail, retries = tool_outcome_detail(msgs or [])
+            outcome = {"ok": ok, "fail": fail, "retries": retries,
+                       "served": t["served"], "withheld": t["withheld"]}
+            await conn.execute(
+                "UPDATE episodic_turns SET meta = COALESCE(meta, '{}'::jsonb)"
+                " || jsonb_build_object('outcome', $2::jsonb) WHERE id=$1",
+                t["id"], json.dumps(outcome))
+            written += 1
+    return {"turns": len(rows), "written": written}
 
 
 async def link_retrievals(conn, turn_id: int, session_id: str) -> int:
@@ -193,7 +278,8 @@ async def score_pending(limit: int = 200) -> dict:
         "SELECT DISTINCT r.turn_id FROM memory_retrievals r"
         " JOIN memories m ON m.id=r.memory_id"
         " WHERE r.turn_id IS NOT NULL AND m.tier='procedural'"
-        "   AND r.followed_computed_at IS NULL LIMIT $1", limit)
+        "   AND r.followed_computed_at IS NULL"
+        " ORDER BY r.turn_id DESC LIMIT $1", limit)
     total = failed = 0
     async with pool.acquire() as conn:
         for row in rows:

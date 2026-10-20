@@ -16,11 +16,15 @@ server), and an offline consolidation pass that decides what survives.
 > proxy replaces it. The result learns what to keep instead of drowning in
 > what merely recurred.
 
-**How you'd falsify it:** point Pip's memory at gyrus, let it run, and measure
-the *procedural* tier — does Pip's tool-success-on-recall improve over sessions
-the way gemma-forge's STIG remediation climbed 20%→90%? If procedural memories
-demonstrably raise success and cut retries, the transfer holds. If they don't,
-the thesis is wrong and we learn exactly where.
+**How you'd falsify it (rewritten 2026-10-20, ADR-0014):** point Pip's
+memory at gyrus, withhold procedural recall on a fixed fraction of turns, and
+compare. If turns that received a procedural memory show fewer tool retries
+and failures than the withheld control, and the human-graded relevance of
+personal recall climbs month over month, the transfer holds. If served turns
+look no different from withheld ones, the thesis is wrong and we learn
+exactly where. The original wording — a gemma-forge-style success curve —
+cannot be observed here: Pip's tools already succeed ~97% of the time, so
+there is no floor to climb from (journal-036).
 
 ## Why this shape
 

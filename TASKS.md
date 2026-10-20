@@ -26,6 +26,30 @@ keep this honest — it's the fast read on where the build actually is.
       (32/32 identical across runs). Artifacts: dmz docs/design/l4-fleet-model/.
       Deep review of what data gyrus ingests is Ken's next item.
 
+- [x] **REVIEW 2026-10-20 (docs/REVIEW-2026-10-20.md, journal-036/037)** —
+      seven weeks unwatched; nine data findings + thirteen code findings.
+      SHIPPED 2026-10-20 (two recreates, 36 tests): D1 cron/warm-up recalls no
+      longer logged (`log=0`, `cron_*` guard) + migration 0009 recounted
+      `recall_count` (cron bookkeeping 354→≤24); D2 eviction guard is
+      windowed (45d) and outcome-demoted memories can leave; D3 entity df cap
+      5% (`ken` out of the graph leg); D4 transient-state gate (`expires: day`)
+      + 9 location facts retired; D5/R5 reconciler folds cross personal tiers,
+      includes procedural for folds only, family-split budget; D6 open loops
+      carry a 45d clock, 465 never-re-mentioned stale loops retired, 89
+      re-clocked; D9 warm-up unlogged; C1 consumer hardened; C2 early returns
+      stamp + ORDER BY; C3 per-family candidate pools; C4 judge fallback off,
+      judge-None = no credit; C5 fenced `[]` is an answer; C6 graph cursor on
+      (updated_at,id); C7 firehose gate fails closed; C8 dash tokens.
+      NOT done (Ken's call): R7 knowledge-tier purpose; D7 re-tier spot check;
+      D8 Vitals-record gate; C9 lock order; C10–C13.
+- [ ] **ADR-0014 control comparison** — `recall_control_every=8` live since
+      2026-10-20 01:45Z; `record_turn_outcomes` writes meta.outcome per turn.
+      Read with `docker exec gyrus python /app/tools/m3-harness/control_report.py`.
+      Needs tens of turns per arm with a procedural recall before it says
+      anything — check mid-November.
+- [ ] **ADR-0014 precision grade (monthly)** — `tools/store-audit/sample_recalls.py
+      --n 40`, grade R/H/W, record the three shares in the journal. First one
+      due ~2026-11-20; baseline from the August audit is ~70% keep.
 - [ ] **lab/reason fallback — GB10 swap (dmz handoff 2026-10-19).** Super VL
       bake-off results + side-by-side sheet built in the container at
       `/tmp/eval-supervl/` (copy to the gitignored
@@ -223,7 +247,12 @@ keep this honest — it's the fast read on where the build actually is.
       judge-down degrades to the embedding verdict. Notably it refused to
       blame a workflow memory for a script-existence probe — the follow-gate
       protecting against unfair credit, observed live.
-- [~] THE CURVE — **dynamics VALIDATED 2026-08-16** via the agent-driven
+- [x] THE CURVE — **CLOSED 2026-10-20 as not measurable as stated (ADR-0014):**
+      Pip's tools succeed ~97% of the time and credit saturates at 1.0 after
+      three samples; since 08-31, 86 followed recalls on 16 memories, one
+      negative. Replaced by the withheld-recall control + monthly precision
+      grade (Now/next). History below kept for the record.
+- [~] (historical) THE CURVE — **dynamics VALIDATED 2026-08-16** via the agent-driven
       harness (tools/m3-harness/, journal-026): 8 rounds of real reuse loops
       against the Pip VM. The store's MOST confident procedural memory
       (2114, conf 1.00, "run pip_openbrain_autopromote_candidates.py") was

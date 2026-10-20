@@ -43,7 +43,17 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-RECONCILE_TIERS = ("factual", "preference", "knowledge")
+RECONCILE_TIERS = ("factual", "preference", "knowledge", "procedural")
+# Review R5 (2026-10-20): procedural joins for SAME-CLAIM folds only — a fold
+# is deduplication, not a judgment on whether the procedure works; that stays
+# with outcome credit. Procedural "contradicts" verdicts are ignored (keep
+# both). Personal-tier pairs may also cross tiers (the same Vitals bug was
+# stored as factual 23787 AND procedural 23792 at cosine 0.924, invisible to
+# a same-tier join); knowledge stays within itself. Each family gets its own
+# share of the nightly pair budget, so knowledge backlog cannot starve the
+# personal tiers.
+PERSONAL_TIERS = ("factual", "preference", "procedural", "open_loop")
+TIER_RANK = {"procedural": 3, "factual": 2, "preference": 1, "open_loop": 0}
 PAIR_FLOOR = 0.90          # below this, pairs are just different memories
 BLIND_MERGE = 0.97         # at/above, consolidate's existing merge handles it
 
@@ -145,19 +155,22 @@ async def _judge_pairs(pairs: list[dict], swap: bool) -> dict[str, str]:
 
 async def reconcile_pairs(conn, *, max_pairs: int, commit: bool) -> ReconcileReport:
     rep = ReconcileReport()
-    rows = await conn.fetch(
-        "WITH nn AS ("
-        "  SELECT a.id AS a_id, b.id AS b_id,"
-        "         1 - (a.embedding <=> b.embedding) AS sim,"
-        "         row_number() OVER (PARTITION BY a.id ORDER BY a.embedding <=> b.embedding) AS rn"
-        "  FROM memories a JOIN memories b"
-        "    ON b.id < a.id AND b.tier = a.tier AND b.retired_at IS NULL"
-        "   AND b.embedding IS NOT NULL"
-        "  WHERE a.retired_at IS NULL AND a.embedding IS NOT NULL"
-        "    AND a.tier = ANY($1::text[])"
-        ") SELECT a_id, b_id, sim FROM nn WHERE rn = 1"
-        "   AND sim >= $2 AND sim < $3 ORDER BY sim DESC LIMIT $4",
-        list(RECONCILE_TIERS), PAIR_FLOOR, BLIND_MERGE, max_pairs)
+    rows = []
+    for tiers, share in ((list(PERSONAL_TIERS), max_pairs // 2),
+                         (["knowledge"], max_pairs - max_pairs // 2)):
+        rows += await conn.fetch(
+            "WITH nn AS ("
+            "  SELECT a.id AS a_id, b.id AS b_id,"
+            "         1 - (a.embedding <=> b.embedding) AS sim,"
+            "         row_number() OVER (PARTITION BY a.id ORDER BY a.embedding <=> b.embedding) AS rn"
+            "  FROM memories a JOIN memories b"
+            "    ON b.id < a.id AND b.tier = ANY($1::text[]) AND b.retired_at IS NULL"
+            "   AND b.embedding IS NOT NULL"
+            "  WHERE a.retired_at IS NULL AND a.embedding IS NOT NULL"
+            "    AND a.tier = ANY($1::text[])"
+            ") SELECT a_id, b_id, sim FROM nn WHERE rn = 1"
+            "   AND sim >= $2 AND sim < $3 ORDER BY sim DESC LIMIT $4",
+            tiers, PAIR_FLOOR, BLIND_MERGE, share)
 
     pairs = []
     for r in rows:
@@ -186,8 +199,12 @@ async def reconcile_pairs(conn, *, max_pairs: int, commit: bool) -> ReconcileRep
             continue                       # double agreement or nothing
         if a == "same":
             keep, drop = p["a"], p["b"]
-            if (drop["corroboration_count"], drop["recall_count"]) > \
-               (keep["corroboration_count"], keep["recall_count"]):
+            # Survivor: more evidence wins; on a tie across tiers the more
+            # specific tier (procedural > factual > preference > open_loop).
+            if (drop["corroboration_count"], drop["recall_count"],
+                    TIER_RANK.get(drop["tier"], 0)) > \
+               (keep["corroboration_count"], keep["recall_count"],
+                    TIER_RANK.get(keep["tier"], 0)):
                 keep, drop = drop, keep
             same_src = keep["source_key"] is not None and \
                 keep["source_key"] == drop["source_key"]
@@ -203,6 +220,9 @@ async def reconcile_pairs(conn, *, max_pairs: int, commit: bool) -> ReconcileRep
                     " WHERE id=$2 AND retired_at IS NULL", keep["id"], drop["id"])
             rep.folded += 1
         elif a == "contradicts":
+            if "procedural" in (p["a"]["tier"], p["b"]["tier"]) or \
+                    p["a"]["tier"] != p["b"]["tier"]:
+                continue                   # a text judge does not overrule outcome credit
             winner, loser = pick_survivor(p["a"], p["b"])
             if commit:
                 await conn.execute(

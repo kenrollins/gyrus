@@ -304,6 +304,27 @@ _EXPIRY_PATTERNS = (
 )
 
 
+# Review D4 (2026-10-20): location and presence chatter from the voice
+# satellites was landing as durable fact — six mutually contradictory "Ken's
+# home is N miles from <coordinates>" rows, "Ken's phone is back home" at 200
+# recalls and confidence 1.00. State that is true for an afternoon gets a
+# one-day clock, deterministically; the model has no notion of "transient".
+_TRANSIENT_PATTERNS = re.compile(
+    r"(phone(?:'s)? (?:current )?location|phone is (?:back )?(?:at|home)|is back home|"
+    r"is away in|is currently (?:in|at)|latitude|longitude|"
+    r"\b-?\d{1,3}\.\d{4,},\s*-?\d{1,3}\.\d{4,}|miles? from (?:the )?(?:coordinates|phone))",
+    re.IGNORECASE)
+
+# Review D6: 554 of 587 live open loops were older than 45 days; nothing
+# closed a loop for being old. An open loop now carries a 45-day clock by
+# default, refreshed whenever it is re-mentioned (persist's re-cross paths).
+OPEN_LOOP_DEFAULT_DAYS = 45
+
+
+def is_transient(fact: str) -> bool:
+    return bool(_TRANSIENT_PATTERNS.search(fact))
+
+
 def _infer_expiry(fact: str) -> str | None:
     """ADR-0011 backstop: read the time scope the fact's own words state.
     Conservative on purpose — bare 'today' is excluded (too often rhetorical),
@@ -336,6 +357,8 @@ def _clean(raw: list[dict[str, Any]]) -> list[Fact]:
         expires = str(item.get("expires", "")).strip().lower() or None
         if expires not in EXPIRES_DAYS:            # anything unrecognized -> durable
             expires = None
+        if expires is None and tier != "knowledge" and is_transient(fact):
+            expires = "day"
         if expires is None and tier in ("open_loop", "preference"):
             # The golden-set pass showed the model ignoring the expires field
             # even with a verbatim example (v1.3 bench, 2026-08-16), so the
@@ -536,6 +559,8 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
         valid_until = None
         if f.expires in EXPIRES_DAYS:
             valid_until = datetime.now(timezone.utc) + timedelta(days=EXPIRES_DAYS[f.expires])
+        elif f.tier == "open_loop":
+            valid_until = datetime.now(timezone.utc) + timedelta(days=OPEN_LOOP_DEFAULT_DAYS)
         row = await conn.fetchrow(
             "INSERT INTO memories (tier, fact, entities, provenance, embedding, fact_hash,"
             " source_turn_id, source_session_id, extractor, source_type, source_ref, topic,"
@@ -553,7 +578,10 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
             "                  AND memories.source_key = EXCLUDED.source_key)"
             "              OR EXCLUDED.source_type = 'claude'"  # echo guard
             "            THEN 0 ELSE 1 END,"
-            "       updated_at = now()"
+            "       updated_at = now(),"
+            # A re-mentioned open loop gets a fresh clock (review D6).
+            "       valid_until = CASE WHEN memories.tier = 'open_loop'"
+            "         THEN now() + interval '45 days' ELSE memories.valid_until END"
             " RETURNING id, (xmax = 0) AS inserted",
             f.tier, f.fact, f.entities, f.provenance, pgvec, f.hash,
             turn_id, session_id, f"{settings.extract_model}:{PROMPT_VERSION}",
@@ -572,7 +600,10 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
         ids = sorted(corroborate)
         await conn.execute(
             "UPDATE memories m SET corroboration_count = m.corroboration_count + v.n,"
-            " updated_at = now() FROM (SELECT unnest($1::bigint[]) AS id,"
+            " updated_at = now(),"
+            " valid_until = CASE WHEN m.tier = 'open_loop'"
+            "   THEN now() + interval '45 days' ELSE m.valid_until END"
+            " FROM (SELECT unnest($1::bigint[]) AS id,"
             " unnest($2::int[]) AS n) v WHERE m.id = v.id",
             ids, [corroborate[i] for i in ids])
     return written

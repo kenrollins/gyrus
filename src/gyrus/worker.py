@@ -37,23 +37,29 @@ def enqueue(turn_id: int) -> None:
 
 
 async def _extract_turn(turn_id: int) -> None:
+    # Review C1 (2026-10-20): the first DB round-trip used to sit OUTSIDE the
+    # try, and the except branch itself wrote to the DB — two connection
+    # resets would have ended both consumers silently (pending climbing,
+    # nothing logged). Everything that can raise is inside now, and the
+    # error-marking write is best-effort.
     pool = await db.get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id, session_id, user_text, assistant_text, messages, platform"
-            " FROM episodic_turns WHERE id = $1 AND extracted_at IS NULL", turn_id)
-        if row is None:
-            return
-        # Cron/scheduled output is never a memory: the golden-set probe showed
-        # a scheduled job's own prompt extracted as "Ken prefers...". The live
-        # path filters here; the backfill filters at the source query.
-        if (row["platform"] or "").lower() == "cron":
-            await conn.execute("UPDATE episodic_turns SET extracted_at = now(),"
-                               " extract_error = 'skipped: cron source' WHERE id = $1", turn_id)
-            return
+    row = None
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, session_id, user_text, assistant_text, messages, platform"
+                " FROM episodic_turns WHERE id = $1 AND extracted_at IS NULL", turn_id)
+            if row is None:
+                return
+            # Cron/scheduled output is never a memory: the golden-set probe showed
+            # a scheduled job's own prompt extracted as "Ken prefers...". The live
+            # path filters here; the backfill filters at the source query.
+            if (row["platform"] or "").lower() == "cron":
+                await conn.execute("UPDATE episodic_turns SET extracted_at = now(),"
+                                   " extract_error = 'skipped: cron source' WHERE id = $1", turn_id)
+                return
         messages = [{"role": "user", "content": row["user_text"] or ""},
                     {"role": "assistant", "content": row["assistant_text"] or ""}]
-    try:
         facts = await extraction.extract_union(messages)
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -65,10 +71,13 @@ async def _extract_turn(turn_id: int) -> None:
         logger.info("turn %s: %d facts extracted, %d new", turn_id, len(facts), written)
     except Exception as e:                                  # noqa: BLE001
         logger.exception("extraction failed for turn %s", turn_id)
-        async with pool.acquire() as conn:
-            # extracted_at stays NULL so the sweeper retries it.
-            await conn.execute("UPDATE episodic_turns SET extract_error = $2 WHERE id = $1",
-                               turn_id, str(e)[:500])
+        try:
+            async with pool.acquire() as conn:
+                # extracted_at stays NULL so the sweeper retries it.
+                await conn.execute("UPDATE episodic_turns SET extract_error = $2 WHERE id = $1",
+                                   turn_id, str(e)[:500])
+        except Exception:                                   # noqa: BLE001
+            logger.exception("could not record extraction error for turn %s", turn_id)
 
 
 async def _consumer(name: str) -> None:
@@ -77,6 +86,10 @@ async def _consumer(name: str) -> None:
         turn_id = await _queue.get()
         try:
             await _extract_turn(turn_id)
+        except Exception:                                   # noqa: BLE001
+            # Belt and braces: a consumer that dies takes half the extraction
+            # capacity with it and nothing reports the loss.
+            logger.exception("consumer %s: unhandled error on turn %s", name, turn_id)
         finally:
             _queue.task_done()
 
@@ -182,6 +195,14 @@ async def _outcome_sweeper(interval_s: int = 180) -> None:
                 logger.info("outcome sweeper: %s", res)
         except Exception:                                   # noqa: BLE001
             logger.exception("outcome sweeper pass failed")
+        try:
+            # ADR-0014: the control comparison's denominator — every turn's
+            # tool outcome, procedural recall or not.
+            res = await outcomes.record_turn_outcomes()
+            if res.get("written"):
+                logger.info("turn outcomes: %s", res)
+        except Exception:                                   # noqa: BLE001
+            logger.exception("turn outcome pass failed")
 
 
 async def _dream_sweeper(check_interval_s: int = 3600) -> None:

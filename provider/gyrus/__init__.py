@@ -156,14 +156,20 @@ class GyrusMemoryProvider(MemoryProvider):
             name="gyrus-prefetch",
         ).start()
 
-    def _fetch_recall(self, query: str, session_id: str, *, timeout: float):
-        params = urllib.parse.urlencode({"session_id": session_id, "q": query})
+    def _fetch_recall(self, query: str, session_id: str, *, timeout: float,
+                      log: bool = True):
+        params = urllib.parse.urlencode(
+            {"session_id": session_id, "q": query, "log": 1 if log else 0})
         data = self._request("GET", f"/v1/prefetch?{params}", timeout=timeout)
         return None if data is None else data.get("text", "")
 
     def _refresh_cache(self, query: str, session_id: str) -> None:
+        # Warm-up only (log=0): this fires after the turn with the question
+        # just answered, and gyrus was recording it as a second recall and
+        # attributing it to the NEXT turn (review D9, 2026-10-20). It still
+        # warms the embedding lane and the cache; it no longer counts.
         key = query.strip()[:500]
-        text = self._fetch_recall(key, session_id, timeout=_TIMEOUT_S)
+        text = self._fetch_recall(key, session_id, timeout=_TIMEOUT_S, log=False)
         if text is not None:
             with self._cache_lock:
                 self._cache_key, self._prefetch_cache = key, text

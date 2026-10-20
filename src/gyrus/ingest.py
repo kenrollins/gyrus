@@ -159,6 +159,16 @@ async def _ingest_batch(*, max_extract: int, relevance_floor: float, batch: int)
         anchor_vecs = [v for v in await gateway.embed(PROFILE_ANCHORS) if v]
         vecs = await gateway.embed(
             [f"{it['title']}. {it['body']}"[:6000] for it in firehose])
+        # Review C7 (2026-10-20): an embedder outage here used to read as
+        # "nothing relevant" — every firehose item skipped and the cursor
+        # advanced past them for good. Hold the cursor instead, like the
+        # gateway-outage path below.
+        if not anchor_vecs or any(v is None for v in vecs):
+            logger.warning("thalamus ingest: embedder unavailable for the relevance gate;"
+                           " cursor held at %d", cursor)
+            return {"pulled": len(items), "trusted": len(trusted), "firehose_selected": 0,
+                    "extracted": 0, "cursor": cursor,
+                    "error": "embedder unavailable for relevance gate"}
         scored = []
         for it, v in zip(firehose, vecs):
             rel = max((_cos(v, av) for av in anchor_vecs), default=0.0) if v else 0.0

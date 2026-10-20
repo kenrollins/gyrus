@@ -132,6 +132,8 @@ async def metrics() -> "PlainTextResponse":
     # Process-lifetime counter (resets on recreate): windows extracted without
     # their second opinion because the union lane was down.
     out.append(f'gyrus_union_skipped_total {extraction.UNION_SKIPPED}')
+    out.append(f'gyrus_prefetch_served_total {PREFETCH_SERVED}')
+    out.append(f'gyrus_prefetch_withheld_total {PREFETCH_WITHHELD}')
     out.append(f'gyrus_last_consolidation_timestamp {row["last_consolidation"] or 0}')
     out.append(f'gyrus_entity_relations {row["entity_relations"]}')
     return PlainTextResponse("\n".join(out) + "\n")
@@ -261,17 +263,44 @@ async def mark_extracted(m: MarkExtracted) -> dict[str, Any]:
     return {"ok": True, "marked": len(m.turn_ids)}
 
 
+# ADR-0014 control arm: process-lifetime counters, scraped by /metrics.
+PREFETCH_SERVED = 0
+PREFETCH_WITHHELD = 0
+
+
 @app.get("/v1/prefetch")
 async def prefetch(
     session_id: str = Query(default=""),
     q: str = Query(default=""),
     k: int = Query(default=0, ge=0, le=20),
+    log: int = Query(default=1, ge=0, le=1),
 ) -> dict[str, Any]:
-    """Hybrid recall for the upcoming turn: keyword + semantic + entity graph."""
+    """Hybrid recall for the upcoming turn: keyword + semantic + entity graph.
+
+    `log=0`: compute and return, record nothing (the provider's warm-up —
+    review D9: the post-turn warm-up was being logged as a second recall and
+    attributed to the NEXT turn). Cron sessions are never logged either
+    (review D1: a scheduled job reading its own bookkeeping was the store's
+    top demand signal). The ADR-0014 control arm applies only to logged,
+    non-cron, non-empty-session recalls.
+    """
+    global PREFETCH_SERVED, PREFETCH_WITHHELD
     pool = await db.get_pool()
+    is_cron = session_id.startswith("cron_")
+    loggable = bool(log) and bool(session_id) and not is_cron
+    withheld = loggable and retrieval.is_control(session_id, q)
     async with pool.acquire() as conn:
         recalls = await retrieval.search(conn, q, k=k or None)
-        await retrieval.log_retrievals(conn, recalls, query=q, session_id=session_id)
+        if loggable:
+            await retrieval.log_retrievals(conn, recalls, query=q, session_id=session_id,
+                                           withheld=withheld)
+    if loggable:
+        if withheld:
+            PREFETCH_WITHHELD += 1
+        else:
+            PREFETCH_SERVED += 1
+    if withheld:
+        return {"text": "", "memories": [], "withheld": True}
     return {
         "text": retrieval.render(recalls),
         "memories": [{"id": r.memory_id, "tier": r.tier, "fact": r.fact,

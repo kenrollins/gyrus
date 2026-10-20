@@ -83,11 +83,26 @@ async def sync(*, full: bool = False) -> GraphReport:
                 "INSERT INTO ingest_state (source) VALUES ('graph')"
                 " ON CONFLICT (source) DO UPDATE SET source=EXCLUDED.source"
                 " RETURNING cursor") or 0)
-            rows = await conn.fetch(
-                "SELECT id, tier, confidence, event_at, created_at, retired_at,"
-                " superseded_by_id, extract(epoch from updated_at) AS upd"
-                " FROM memories WHERE extract(epoch from updated_at) > $1"
-                " ORDER BY updated_at LIMIT 20000", float(cursor))
+            # Review C6 (2026-10-20): the dream pass stamps every live memory
+            # with one updated_at, so a page keyed on the timestamp alone
+            # stops advancing once more than a page shares it — and the
+            # cursor is floored to whole seconds, so `>` would re-fetch the
+            # same page forever with error=None. Key on (updated_at, id) and
+            # keep paging until a short page; the cursor stores the floor of
+            # the last timestamp, and the id tiebreak makes that safe.
+            rows = []
+            last_ts, last_id = float(cursor), 0
+            while True:
+                page = await conn.fetch(
+                    "SELECT id, tier, confidence, event_at, created_at, retired_at,"
+                    " superseded_by_id, extract(epoch from updated_at) AS upd"
+                    " FROM memories"
+                    " WHERE (extract(epoch from updated_at), id) > ($1, $2)"
+                    " ORDER BY updated_at, id LIMIT 20000", last_ts, last_id)
+                rows.extend(page)
+                if len(page) < 20000:
+                    break
+                last_ts, last_id = float(page[-1]["upd"]), page[-1]["id"]
             if not rows:
                 return rep
             mentions = await conn.fetch(
@@ -122,11 +137,13 @@ async def sync(*, full: bool = False) -> GraphReport:
                     " MERGE (e:GEntity {name: r.e}) MERGE (m)-[:MENTIONS]->(e)",
                     rows=batch)
                 rep.mentions_synced += len(batch)
-            new_cursor = max(float(r["upd"]) for r in rows)
+            # Floor minus one second: the next run re-reads the last second's
+            # rows (idempotent MERGE) rather than skipping ones that share it.
+            new_cursor = max(0, int(max(float(r["upd"]) for r in rows)) - 1)
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE ingest_state SET cursor=$1, updated_at=now()"
-                " WHERE source='graph'", int(new_cursor))
+                " WHERE source='graph'", new_cursor)
     except Exception as e:                                  # noqa: BLE001
         rep.error = f"{type(e).__name__}: {e}"
         logger.warning("graph sync failed: %s", rep.error)

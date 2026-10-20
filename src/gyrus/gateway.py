@@ -183,7 +183,10 @@ async def chat_json(
                     continue
                 responded = True          # gave usable content, whatever it said
                 objs = salvage_objects(text)
-                if not objs and text != "[]":
+                # "[]" inside a fence or after a think block is still "looked
+                # and found nothing" (review C5): it used to fail the bare
+                # equality and send the window to the fallback lane.
+                if not objs and not re.search(r"\[\s*\]", text):
                     logger.warning("extract(%s): no parsable objects (head=%r)", mdl, text[:200])
                     continue
                 return objs
