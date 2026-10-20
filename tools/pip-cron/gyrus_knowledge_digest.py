@@ -20,7 +20,11 @@ if not TOKEN and env.exists():
         if line.startswith("GYRUS_API_TOKEN="):
             TOKEN = line.split("=", 1)[1].strip().strip('"')
 
-q = urllib.parse.urlencode({"days": 7, "limit": 10, "order": "confidence"})
+# Fetch more than we show and cap two per source document, so one paper's
+# five claims do not fill the digest (first run 2026-10-20: 4 of 10 were one
+# eprint). Only the ten printed are the ten that matter; the browse bump on
+# the rest is the cost of the cap.
+q = urllib.parse.urlencode({"days": 7, "limit": 40, "order": "confidence"})
 req = urllib.request.Request(f"{BASE}/v1/insights?{q}",
                              headers={"Authorization": f"Bearer {TOKEN}"})
 try:
@@ -30,7 +34,16 @@ except Exception as e:  # noqa: BLE001
     print(f"gyrus digest: could not reach gyrus ({e})")
     raise SystemExit(0)
 
-items = d.get("insights") or []
+items = []
+per_ref: dict = {}
+for it in d.get("insights") or []:
+    ref = it.get("source_ref") or it.get("fact")
+    if per_ref.get(ref, 0) >= 2:
+        continue
+    per_ref[ref] = per_ref.get(ref, 0) + 1
+    items.append(it)
+    if len(items) == 10:
+        break
 if not items:
     raise SystemExit(0)
 by_src = d.get("by_source") or {}
