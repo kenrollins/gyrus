@@ -334,6 +334,8 @@ def test_claude_lane_never_corroborates(monkeypatch):
             if sql.lstrip().startswith("SELECT id, source_key"):
                 return {"id": 42, "source_key": "github:kenrollins/gyrus", "sim": 0.99}
             return None
+        async def fetchval(self, sql, *args):
+            return False            # C10 guard: nothing judged-retired here
         async def execute(self, sql, *args):
             bumps.append(args)
         async def executemany(self, *a):

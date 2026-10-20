@@ -34,6 +34,7 @@ stdlib-only on purpose — no new deps in the Hermes venv.
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import queue
@@ -73,6 +74,7 @@ class GyrusMemoryProvider(MemoryProvider):
         self._turn_index = 0
         self._cache_lock = threading.Lock()
         self._prefetch_cache = ""
+        self._auth_warned = False
         self._cache_key = None
         self._queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue(maxsize=_QUEUE_MAX)
         self._writer: Optional[threading.Thread] = None
@@ -234,7 +236,13 @@ class GyrusMemoryProvider(MemoryProvider):
                 return
             # Run under the context of the turn that queued it (its secret scope
             # and HERMES_HOME), not the context the writer was spawned in.
-            item["send"]("POST", item["path"], item["body"])
+            # Review C12 (2026-10-20): one uncaught exception here ended the
+            # writer for the rest of the session, with only "queue full"
+            # warnings to show for it. The thread outlives any single write.
+            try:
+                item["send"]("POST", item["path"], item["body"])
+            except Exception as e:  # noqa: BLE001
+                logger.warning("gyrus writer: %s failed and was dropped: %s", item["path"], e)
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None,
                  timeout: float = _TIMEOUT_S) -> Optional[Dict[str, Any]]:
@@ -260,7 +268,17 @@ class GyrusMemoryProvider(MemoryProvider):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode() or "{}")
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        except urllib.error.HTTPError as e:
+            # A token mismatch is a total, silent loss of memory; say so once.
+            if e.code == 401 and not self._auth_warned:
+                self._auth_warned = True
+                logger.warning("gyrus rejected the bearer token (401): recall and capture"
+                               " are off until GYRUS_API_TOKEN matches the service")
+            else:
+                logger.debug("gyrus %s %s failed: %s", method, path, e)
+            return None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError,
+                http.client.HTTPException, ValueError) as e:
             logger.debug("gyrus %s %s failed: %s", method, path, e)
             return None
 

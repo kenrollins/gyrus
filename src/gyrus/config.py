@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     # web 863 / 0.4%. Re-enable by clearing the list; nothing is lost.
     ingest_paused_sources: str = "github,web"
 
+    # --- episodic scratch (non-negotiable #1: raw turns are scratch) ---
+    # Review C11: episodic_turns held every transcript with full tool output
+    # forever (130 MB at 2.5k turns, ~750 MB/yr on the shared Supabase). Once
+    # a turn is extracted AND outcome-scored AND this old, its `messages`
+    # column is nulled; user/assistant text and fts stay for the record.
+    turn_messages_retention_days: int = 60
+
     # --- consolidation (M2) ---
     # Review D2 (2026-10-20): "ever recalled" was a permanent exemption from
     # eviction. Demand now has to be recent to protect a low-utility memory.

@@ -50,7 +50,13 @@ keep this honest — it's the fast read on where the build actually is.
       get the browse bump). D7 DONE — docs/RETIER-SPOTCHECK-2026-10-20.md:
       tier 95% right, durability the leak (10/40); status-line clock +
       fragment drop gates shipped, 9 retired. C9 DONE — single sorted UPDATE.
-      Still open: C10–C13 (low).
+      C10–C13 DONE same day: judged-retired facts are not resurrected on
+      re-cross (hash or cosine, 180d); `messages` nulled on fully processed
+      turns older than 60d (daily prune sweeper, 166 eligible at ship);
+      provider 1.3.0 — writer thread survives a failed write, 401 warned once;
+      credit query tier-guarded. Knowledge-tier consumers still to wire (Ken
+      interested): Monday briefs read /v1/insights first; MCP face in lab
+      Claude sessions.
 - [ ] **ADR-0014 control comparison** — `recall_control_every=8` live since
       2026-10-20 01:45Z; `record_turn_outcomes` writes meta.outcome per turn.
       Read with `docker exec gyrus python /app/tools/m3-harness/control_report.py`.

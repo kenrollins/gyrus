@@ -576,6 +576,23 @@ async def persist(conn, facts: list[Fact], *, turn_id: int | None,
     # unordered it could still deadlock two windows extracting the same facts.
     for f, vec in sorted(zip(facts, vectors), key=lambda fv: fv[0].hash):
         pgvec = gateway.to_pgvector(vec)
+        # Review C10 (2026-10-20): a fact retired by a JUDGMENT — contradicted,
+        # evicted, retired by Ken or an audit — used to come back as new the
+        # next time its source re-crossed (3 live rows shared a hash with a
+        # retired one), resetting the clocks on a belief the store had already
+        # rejected. Expiry and fold retirements are not judgments: a re-mention
+        # of an expired loop or a merged wording is a new mention and inserts.
+        judged = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM memories"
+            " WHERE retired_at IS NOT NULL AND retired_at > now() - interval '180 days'"
+            "   AND (retired_reason ~* '^(reconciler: contradicted|low utility|ken |review |"
+            "        re-tier |store-audit)')"
+            "   AND (fact_hash = $1 OR ($2::vector IS NOT NULL AND tier = $3"
+            "        AND embedding IS NOT NULL AND 1 - (embedding <=> $2::vector) >= $4)))",
+            f.hash, pgvec, f.tier, settings.dedupe_threshold)
+        if judged:
+            logger.info("persist: not resurrecting a judged-retired fact (%s)", f.fact[:60])
+            continue
         # near-duplicate check (only possible when both sides have vectors)
         if pgvec is not None:
             dup = await conn.fetchrow(

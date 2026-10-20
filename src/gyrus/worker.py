@@ -268,6 +268,30 @@ async def _thalamus_sweeper(interval_s: int = 21600) -> None:
             logger.exception("thalamus sweeper failed")
 
 
+async def _prune_sweeper(interval_s: int = 86400) -> None:
+    """Review C11: null the raw message list of old, fully processed turns."""
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            days = settings.turn_messages_retention_days
+            if days <= 0:
+                continue
+            pool = await db.get_pool()
+            n = await pool.fetchval(
+                "WITH p AS (UPDATE episodic_turns SET messages = NULL"
+                " WHERE messages IS NOT NULL AND extracted_at IS NOT NULL"
+                "   AND (meta->'outcome') IS NOT NULL"
+                "   AND created_at < now() - ($1 || ' days')::interval"
+                "   AND NOT EXISTS (SELECT 1 FROM memory_retrievals r"
+                "                   WHERE r.turn_id = episodic_turns.id"
+                "                     AND r.followed_computed_at IS NULL)"
+                " RETURNING 1) SELECT count(*) FROM p", str(days))
+            if n:
+                logger.info("prune sweeper: cleared messages on %d turns older than %dd", n, days)
+        except Exception:                                   # noqa: BLE001
+            logger.exception("prune sweeper pass failed")
+
+
 async def start(concurrency: int) -> None:
     global _queue
     _queue = asyncio.Queue(maxsize=1000)
@@ -278,6 +302,7 @@ async def start(concurrency: int) -> None:
     _tasks.append(asyncio.create_task(_outcome_sweeper()))
     _tasks.append(asyncio.create_task(_thalamus_sweeper()))
     _tasks.append(asyncio.create_task(_dream_sweeper()))
+    _tasks.append(asyncio.create_task(_prune_sweeper()))
     logger.info("extraction worker started (%d consumers)", concurrency)
 
 

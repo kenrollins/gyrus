@@ -125,9 +125,12 @@ async def consolidate(*, commit: bool = False, report_dir: str | None = None) ->
             # gemma-forge's follow_sample_size guard (it used 5). One failed turn
             # must not tank a memory whose execution happened to error.
         credit = {r["memory_id"]: r["c"] for r in await conn.fetch(
-            "SELECT memory_id, AVG(outcome_value * outcome_confidence) AS c"
-            " FROM memory_retrievals WHERE outcome_value IS NOT NULL"
-            " GROUP BY memory_id HAVING count(*) >= $1", OUTCOME_MIN_SAMPLES)}
+            # Review C13: tier-guarded here as well as at the writer, so a
+            # re-tier can never carry outcome credit into a preference (#4).
+            "SELECT r.memory_id, AVG(r.outcome_value * r.outcome_confidence) AS c"
+            " FROM memory_retrievals r JOIN memories m ON m.id = r.memory_id"
+            " WHERE r.outcome_value IS NOT NULL AND m.tier = 'procedural'"
+            " GROUP BY r.memory_id HAVING count(*) >= $1", OUTCOME_MIN_SAMPLES)}
         rep.outcome_scored = len(credit)
         scored = []
         for r in rows:
